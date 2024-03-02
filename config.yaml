@@ -1,0 +1,12 @@
+model:
+  embedding_dim: 256
+  hidden_dim: 128
+  max_seq_length: 10
+  use_attention: False
+train:
+  epochs: 20
+  batch_size: 64
+dataset:
+  lang1: eng
+  lang2: fra
+  reverse: True
