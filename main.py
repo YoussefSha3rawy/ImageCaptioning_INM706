@@ -8,7 +8,7 @@ import matplotlib.ticker as ticker
 
 from dataset import TranslationDataset
 from logger import Logger
-from models import EncoderRNN, AttnDecoderGRU, DecoderRNN
+from models import EncoderRNN, DecoderRNN, ImageEncoderRNN
 from utils import parse_arguments, read_settings
 from torch.utils.data import Dataset, DataLoader
 
@@ -151,20 +151,24 @@ def main():
 
     print(model_settings, train_settings, dataset_settings, sep='\n')
 
-    wandb_logger = Logger()
-    logger = wandb_logger.get_logger()
-    dataset = TranslationDataset(**dataset_settings)
-    hidden_size = model_settings['hidden_size']
-    n_epochs = 80
+    # wandb_logger = Logger()
+    # logger = wandb_logger.get_logger()
+    # dataset = TranslationDataset(**dataset_settings)
+    # hidden_size = model_settings['hidden_size']
+    # n_epochs = 80
 
-    train_dataloader = DataLoader(
-        dataset, batch_size=train_settings['batch_size'])
+    # train_dataloader = DataLoader(
+    #     dataset, batch_size=train_settings['batch_size'])
 
-    encoder = EncoderRNN(dataset.input_lang.n_words, hidden_size).to(device)
-    decoder = DecoderRNN(hidden_size, dataset.output_lang.n_words).to(device)
+    # encoder = EncoderRNN(dataset.input_lang.n_words, hidden_size).to(device)
+    # decoder = DecoderRNN(hidden_size, dataset.output_lang.n_words).to(device)
 
-    train(train_dataloader, encoder, decoder, n_epochs, logger,
-          dataset.output_lang, print_every=5, plot_every=5)
+    # train(train_dataloader, encoder, decoder, n_epochs, logger,
+    #       dataset.output_lang, print_every=5, plot_every=5)
+
+    model = ImageEncoderRNN(256, 256)
+
+    print(model.cnn)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models import efficientnet_v2_s, EfficientNet_V2_S_Weights
 
 
 class EncoderRNN(nn.Module):
@@ -11,6 +12,19 @@ class EncoderRNN(nn.Module):
         self.embedding = nn.Embedding(input_size, hidden_size)
         self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
         self.dropout = nn.Dropout(dropout_p)
+
+    def forward(self, input):
+        embedded = self.dropout(self.embedding(input))
+        output, hidden = self.gru(embedded)
+        return output, hidden
+
+
+class ImageEncoderRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, backbone: nn.Module):
+        super(ImageEncoderRNN, self).__init__()
+        self.hidden_size = hidden_size
+
+        self.cnn = efficientnet_v2_s(weights=EfficientNet_V2_S_Weights.DEFAULT)
 
     def forward(self, input):
         embedded = self.dropout(self.embedding(input))
