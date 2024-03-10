@@ -1,12 +1,18 @@
 model:
-  embedding_dim: 256
-  hidden_dim: 128
-  max_seq_length: 10
-  use_attention: False
+  hidden_size: 256
+decoder:
+  max_length: 20
+  embedding_size: 256
 train:
-  epochs: 20
-  batch_size: 64
+  learning_rate: 0.001
+  print_every: 100
+  plot_every: 100
+  n_epochs: 1
 dataset:
-  lang1: eng
-  lang2: fra
-  reverse: True
+  root_dir: flickr30k_images
+  caption_file: results.csv
+  image_folder: 'flickr30k_images'
+  max_length: 20
+dataloader:
+  batch_size: 64
+  shuffle: True

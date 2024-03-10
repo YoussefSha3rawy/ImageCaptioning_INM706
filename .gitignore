@@ -342,3 +342,4 @@ pyrightconfig.json
 
 *.zip
 flickr30k_images
+wandb

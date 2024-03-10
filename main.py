@@ -1,4 +1,3 @@
-import time
 import torch
 import wandb
 import torch.nn as nn
@@ -6,11 +5,12 @@ from torch import optim
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
-from dataset import TranslationDataset
+from dataset import ImageCaptioningDataset
 from logger import Logger
-from models import EncoderRNN, DecoderRNN, ImageEncoderRNN
+from models import DecoderRNN, ImageEncoderRNN
 from utils import parse_arguments, read_settings
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
+from torchvision.models import ResNet50_Weights
 
 
 device = torch.device('cpu')
@@ -18,6 +18,8 @@ if torch.cuda.is_available():
     device = torch.device('cuda')
 if torch.backends.mps.is_available():
     device = torch.device('mps')
+
+print(f'{device = }')
 
 
 def evaluate(encoder, decoder, input_tensor, output_lang):
@@ -82,35 +84,37 @@ def plot_and_show_attention(encoder, decoder, input_sentence, input_tensor, outp
 
 
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
-                decoder_optimizer, criterion, output_lang):
+                decoder_optimizer, criterion):
 
     total_loss = 0
-    for data in dataloader:
-        input_sentence, input_tensor, target_tensor = data
+    for i, (index, image_tensor, tokenized_captions, captions) in enumerate(dataloader):
+        image_tensor = image_tensor.to(device)
+        tokenized_captions = [tokenized_caption.to(
+            device) for tokenized_caption in tokenized_captions]
+        for tokenized_caption in tokenized_captions:
+            encoder_optimizer.zero_grad()
+            decoder_optimizer.zero_grad()
 
-        encoder_optimizer.zero_grad()
-        decoder_optimizer.zero_grad()
+            encoder_outputs = encoder(image_tensor)
+            decoder_outputs, decoder_hidden, _ = decoder(
+                encoder_outputs, tokenized_caption)
 
-        encoder_outputs, encoder_hidden = encoder(input_tensor)
-        decoder_outputs, _, _ = decoder(
-            encoder_outputs, encoder_hidden, target_tensor)
+            loss = criterion(
+                decoder_outputs.view(-1, decoder_outputs.size(-1)),
+                tokenized_caption.view(-1)
+            )
+            loss.backward()
 
-        loss = criterion(
-            decoder_outputs.view(-1, decoder_outputs.size(-1)),
-            target_tensor.view(-1)
-        )
-        loss.backward()
-
-        encoder_optimizer.step()
-        decoder_optimizer.step()
-
-        total_loss += loss.item()
+            total_loss += loss.item()
+            decoder_optimizer.step()
+            encoder_optimizer.step()
+        print(f'Step {i}/{len(dataloader)}', end='\r')
 
     return total_loss / len(dataloader)
 
 
 def train(
-        train_dataloader, encoder, decoder, n_epochs, logger, output_lang, learning_rate=0.001,
+        train_dataloader, encoder, decoder, logger, n_epochs, learning_rate=0.001,
         print_every=100, plot_every=100):
     plot_losses = []
     print_loss_total = 0  # Reset every print_every
@@ -122,7 +126,7 @@ def train(
 
     for epoch in range(1, n_epochs + 1):
         loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer,
-                           decoder_optimizer, criterion, output_lang)
+                           decoder_optimizer, criterion)
         print_loss_total += loss
         plot_loss_total += loss
 
@@ -146,29 +150,27 @@ def main():
 
     # Access and use the settings as needed
     model_settings = settings.get('model', {})
+    encoder_settings = settings.get('encoder', {})
+    decoder_settings = settings.get('decoder', {})
     train_settings = settings.get('train', {})
     dataset_settings = settings.get('dataset', {})
+    dataloader_settings = settings.get('dataloader', {})
 
-    print(model_settings, train_settings, dataset_settings, sep='\n')
+    print(f'{model_settings = }\n{train_settings = }\n{dataset_settings = }\n{encoder_settings = }\n{decoder_settings = }')
 
-    # wandb_logger = Logger()
-    # logger = wandb_logger.get_logger()
-    # dataset = TranslationDataset(**dataset_settings)
-    # hidden_size = model_settings['hidden_size']
-    # n_epochs = 80
+    wandb_logger = Logger('ImageCaptioning', 'INM706_Image_Captioning')
+    logger = wandb_logger.get_logger()
 
-    # train_dataloader = DataLoader(
-    #     dataset, batch_size=train_settings['batch_size'])
+    dataset = ImageCaptioningDataset(
+        **dataset_settings, stage='train', transforms=ResNet50_Weights.DEFAULT.transforms())
+    train_dataloader = DataLoader(
+        dataset, **dataloader_settings)
 
-    # encoder = EncoderRNN(dataset.input_lang.n_words, hidden_size).to(device)
-    # decoder = DecoderRNN(hidden_size, dataset.output_lang.n_words).to(device)
+    encoder = ImageEncoderRNN(**model_settings, **encoder_settings).to(device)
+    decoder = DecoderRNN(**model_settings, **decoder_settings,
+                         output_size=dataset.lang.n_words, device=device).to(device)
 
-    # train(train_dataloader, encoder, decoder, n_epochs, logger,
-    #       dataset.output_lang, print_every=5, plot_every=5)
-
-    model = ImageEncoderRNN(256, 256)
-
-    print(model.cnn)
+    train(train_dataloader, encoder, decoder, logger, **train_settings)
 
 
 if __name__ == '__main__':

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import efficientnet_v2_s, EfficientNet_V2_S_Weights
+from torchvision.models import resnet50, ResNet50_Weights
 
 
 class EncoderRNN(nn.Module):
@@ -20,37 +20,62 @@ class EncoderRNN(nn.Module):
 
 
 class ImageEncoderRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, backbone: nn.Module):
+    def __init__(self, hidden_size: int, backbone: nn.Module = None):
         super(ImageEncoderRNN, self).__init__()
         self.hidden_size = hidden_size
 
-        self.cnn = efficientnet_v2_s(weights=EfficientNet_V2_S_Weights.DEFAULT)
+        self.cnn = resnet50(weights=ResNet50_Weights.DEFAULT)
 
-    def forward(self, input):
-        embedded = self.dropout(self.embedding(input))
-        output, hidden = self.gru(embedded)
-        return output, hidden
+        # self.cnn.fc = nn.Identity()
+
+        # self.conv = nn.Conv2d(2048, hidden_size, kernel_size=1)
+
+        self.cnn.fc = nn.Linear(self.cnn.fc.in_features, hidden_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x = self.cnn.conv1(x)
+        # x = self.cnn.bn1(x)
+        # x = self.cnn.relu(x)
+        # x = self.cnn.maxpool(x)
+
+        # x = self.cnn.layer1(x)
+        # x = self.cnn.layer2(x)
+        # x = self.cnn.layer3(x)
+        # x = self.cnn.layer4(x)
+
+        # x = self.cnn.avgpool(x)
+
+        # x = self.conv(x)
+
+        # x = x.view(x.shape[0], x.shape[1], -1, 1)
+
+        x = self.cnn(x)
+
+        x = x.unsqueeze(0)
+
+        return x
 
 
 class DecoderRNN(nn.Module):
-    MAX_LENGTH = 10
     SOS_token = 0
     EOS_token = 1
 
-    def __init__(self, hidden_size, output_size):
+    def __init__(self, embedding_size, hidden_size, output_size, max_length=10, device=torch.device('cpu')):
         super(DecoderRNN, self).__init__()
-        self.embedding = nn.Embedding(output_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
-        self.out = nn.Linear(hidden_size, output_size)
+        self.embedding = nn.Embedding(output_size, embedding_size)
+        self.gru = nn.GRU(embedding_size, hidden_size, batch_first=True)
+        self.out = nn.Linear(embedding_size, output_size)
+        self.device = device
+        self.max_length = max_length
 
-    def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
-        batch_size = encoder_outputs.size(0)
+    def forward(self, encoder_output, target_tensor=None):
+        batch_size = encoder_output.size(1)
         decoder_input = torch.empty(
-            batch_size, 1, dtype=torch.long, device=device).fill_(self.SOS_token)
-        decoder_hidden = encoder_hidden
+            batch_size, 1, dtype=torch.long, device=self.device).fill_(self.SOS_token)
+        decoder_hidden = encoder_output.clone()
         decoder_outputs = []
 
-        for i in range(self.MAX_LENGTH):
+        for i in range(self.max_length):
             decoder_output, decoder_hidden = self.forward_step(
                 decoder_input, decoder_hidden)
             decoder_outputs.append(decoder_output)
