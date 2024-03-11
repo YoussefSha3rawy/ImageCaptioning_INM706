@@ -25,9 +25,9 @@ print(f'{device = }')
 def evaluate(encoder, decoder, input_tensor, output_lang):
     EOS_token = 1
     with torch.no_grad():
-        encoder_outputs, encoder_hidden = encoder(input_tensor)
-        decoder_outputs, decoder_hidden, decoder_attn = decoder(
-            encoder_outputs, encoder_hidden)
+        encoder_outputs = encoder(input_tensor)
+        decoder_outputs, decoder_hidden, _ = decoder(
+            encoder_outputs)
 
         _, topi = decoder_outputs.topk(1)
         decoded_ids = topi.squeeze()
@@ -38,7 +38,7 @@ def evaluate(encoder, decoder, input_tensor, output_lang):
                 decoded_words.append('<EOS>')
                 break
             decoded_words.append(output_lang.index2word[idx.item()])
-    return decoded_words, decoder_attn
+    return decoded_words
 
 
 def plot_attention(input_sentence, output_words, attentions):
@@ -134,6 +134,8 @@ def train(
             print_loss_avg = print_loss_total / print_every
             print_loss_total = 0
             print(f"Epoch: {epoch}/{n_epochs}, Loss {print_loss_avg}")
+            print(evaluate(encoder, decoder,
+                           train_dataloader.dataset[0], train_dataloader.dataset.lang))
 
         if epoch % plot_every == 0:
             plot_loss_avg = plot_loss_total / plot_every
