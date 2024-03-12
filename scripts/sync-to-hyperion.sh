@@ -1,1 +1,1 @@
-rsync -uvaP --exclude=env --exclude=flickr30k_images --exclude=*.zip ~/Documents/OneDrive\ -\ City,\ University\ of\ London/Documents/MSc\ Files/INM706/* adfx751@localhost:INM706_project/
+rsync -uvaP --exclude=env --exclude=flickr30k_images --exclude=wandb --exclude=*.zip ~/Documents/OneDrive\ -\ City,\ University\ of\ London/Documents/MSc\ Files/INM706/* adfx751@localhost:INM706_project/

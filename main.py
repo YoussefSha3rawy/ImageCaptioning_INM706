@@ -8,7 +8,7 @@ import matplotlib.ticker as ticker
 from dataset import ImageCaptioningDataset
 from logger import Logger
 from models import DecoderRNN, ImageEncoderRNN
-from utils import parse_arguments, read_settings
+from utils import parse_arguments, read_settings, save_checkpoint
 from torch.utils.data import DataLoader
 from torchvision.models import ResNet50_Weights
 
@@ -22,7 +22,10 @@ if torch.backends.mps.is_available():
 print(f'{device = }')
 
 
-def evaluate(encoder, decoder, input_tensor, output_lang):
+def evaluate(encoder, decoder, dataloader):
+    data = dataloader.dataset[0]
+    input_tensor = data[1].unsqueeze(0).to(device)
+    output_lang = dataloader.dataset.lang
     EOS_token = 1
     with torch.no_grad():
         encoder_outputs = encoder(input_tensor)
@@ -38,6 +41,8 @@ def evaluate(encoder, decoder, input_tensor, output_lang):
                 decoded_words.append('<EOS>')
                 break
             decoded_words.append(output_lang.index2word[idx.item()])
+    wandb.log(wandb.Image(data[1].cpu().numpy(
+    ), caption=f'{decoded_words = } ground truth: {data[3]}'))
     return decoded_words
 
 
@@ -109,7 +114,7 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
             decoder_optimizer.step()
             encoder_optimizer.step()
         print(f'Step {i}/{len(dataloader)}', end='\r')
-
+    print()
     return total_loss / len(dataloader)
 
 
@@ -135,13 +140,19 @@ def train(
             print_loss_total = 0
             print(f"Epoch: {epoch}/{n_epochs}, Loss {print_loss_avg}")
             print(evaluate(encoder, decoder,
-                           train_dataloader.dataset[0], train_dataloader.dataset.lang))
+                           train_dataloader))
 
         if epoch % plot_every == 0:
             plot_loss_avg = plot_loss_total / plot_every
             logger.log({'loss_avg': plot_loss_avg})
             plot_losses.append(plot_loss_avg)
             plot_loss_total = 0
+
+        if epoch % 10 == 0:
+            save_checkpoint(
+                epoch, encoder, f'encoder_{encoder.cnn.__class__.__name__}', encoder_optimizer)
+            save_checkpoint(
+                epoch, decoder, f'decoder_{decoder.__class__.__name__}', decoder_optimizer)
 
 
 def main():
@@ -158,7 +169,8 @@ def main():
     dataset_settings = settings.get('dataset', {})
     dataloader_settings = settings.get('dataloader', {})
 
-    print(f'{model_settings = }\n{train_settings = }\n{dataset_settings = }\n{encoder_settings = }\n{decoder_settings = }')
+    print(f'{model_settings = }\n{train_settings = }\n{dataset_settings = }\n'
+          f'{dataloader_settings = }\n{encoder_settings = }\n{decoder_settings = }')
 
     wandb_logger = Logger('ImageCaptioning', 'INM706_Image_Captioning')
     logger = wandb_logger.get_logger()
@@ -171,6 +183,8 @@ def main():
     encoder = ImageEncoderRNN(**model_settings, **encoder_settings).to(device)
     decoder = DecoderRNN(**model_settings, **decoder_settings,
                          output_size=dataset.lang.n_words, device=device).to(device)
+    logger.watch(encoder)
+    logger.watch(decoder)
 
     train(train_dataloader, encoder, decoder, logger, **train_settings)
 

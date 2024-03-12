@@ -20,35 +20,15 @@ class EncoderRNN(nn.Module):
 
 
 class ImageEncoderRNN(nn.Module):
-    def __init__(self, hidden_size: int, backbone: nn.Module = None):
+    def __init__(self, hidden_size: int, freeze_backbone=False, backbone: str = None):
         super(ImageEncoderRNN, self).__init__()
         self.hidden_size = hidden_size
 
         self.cnn = resnet50(weights=ResNet50_Weights.DEFAULT)
 
-        # self.cnn.fc = nn.Identity()
-
-        # self.conv = nn.Conv2d(2048, hidden_size, kernel_size=1)
-
         self.cnn.fc = nn.Linear(self.cnn.fc.in_features, hidden_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x = self.cnn.conv1(x)
-        # x = self.cnn.bn1(x)
-        # x = self.cnn.relu(x)
-        # x = self.cnn.maxpool(x)
-
-        # x = self.cnn.layer1(x)
-        # x = self.cnn.layer2(x)
-        # x = self.cnn.layer3(x)
-        # x = self.cnn.layer4(x)
-
-        # x = self.cnn.avgpool(x)
-
-        # x = self.conv(x)
-
-        # x = x.view(x.shape[0], x.shape[1], -1, 1)
-
         x = self.cnn(x)
 
         x = x.unsqueeze(0)

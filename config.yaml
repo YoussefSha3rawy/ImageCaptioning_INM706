@@ -5,8 +5,8 @@ decoder:
   embedding_size: 256
 train:
   learning_rate: 0.001
-  print_every: 100
-  plot_every: 100
+  print_every: 1
+  plot_every: 5
   n_epochs: 1
 dataset:
   root_dir: flickr30k_images
