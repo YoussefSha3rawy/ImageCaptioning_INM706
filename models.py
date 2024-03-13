@@ -2,21 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models import resnet50, ResNet50_Weights
-
-
-class EncoderRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, dropout_p=0.1):
-        super(EncoderRNN, self).__init__()
-        self.hidden_size = hidden_size
-
-        self.embedding = nn.Embedding(input_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
-        self.dropout = nn.Dropout(dropout_p)
-
-    def forward(self, input):
-        embedded = self.dropout(self.embedding(input))
-        output, hidden = self.gru(embedded)
-        return output, hidden
+import math
+from attention_models import BahdanauAttention, SelfAttention
 
 
 class ImageEncoderRNN(nn.Module):
@@ -26,6 +13,10 @@ class ImageEncoderRNN(nn.Module):
 
         self.cnn = resnet50(weights=ResNet50_Weights.DEFAULT)
 
+        if freeze_backbone:
+            for param in self.cnn.parameters():
+                param.requires_grad = False
+
         self.cnn.fc = nn.Linear(self.cnn.fc.in_features, hidden_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -33,7 +24,45 @@ class ImageEncoderRNN(nn.Module):
 
         x = x.unsqueeze(0)
 
-        return x
+        return None, x
+
+
+class ImageEncoderSelfAttentionRNN(nn.Module):
+    def __init__(self, hidden_size: int, freeze_backbone=False, backbone: str = None):
+        super(ImageEncoderSelfAttentionRNN, self).__init__()
+        self.hidden_size = hidden_size
+
+        self.cnn = resnet50(weights=ResNet50_Weights.DEFAULT)
+
+        self.attention = SelfAttention(input_size=2048, out_size=hidden_size)
+
+        if freeze_backbone:
+            for param in self.cnn.parameters():
+                param.requires_grad = False
+
+        self.cnn.fc = nn.Linear(self.cnn.fc.in_features, hidden_size)
+        # self.conv = nn.Conv2d(2048, 20, kernel_size=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.cnn.conv1(x)
+        x = self.cnn.bn1(x)
+        x = self.cnn.relu(x)
+        x = self.cnn.maxpool(x)
+
+        x = self.cnn.layer1(x)
+        x = self.cnn.layer2(x)
+        x = self.cnn.layer3(x)
+        x = self.cnn.layer4(x)
+
+        out, att = self.attention(x.reshape(x.shape[0], -1, x.shape[1]))
+
+        x = self.cnn.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.cnn.fc(x)
+
+        x = x.unsqueeze(0)
+
+        return out, x
 
 
 class DecoderRNN(nn.Module):
@@ -81,3 +110,72 @@ class DecoderRNN(nn.Module):
         output, hidden = self.gru(output, hidden)
         output = self.out(output)
         return output, hidden
+
+
+class AttnDecoderGRU(nn.Module):
+    max_length = 10
+    SOS_token = 0
+    EOS_token = 1
+
+    def __init__(self, hidden_size, output_size, embedding_size, max_length, dropout_p=0.1, device=torch.device('cpu')):
+        super(AttnDecoderGRU, self).__init__()
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.dropout_p = dropout_p
+        self.embedding = nn.Embedding(output_size, embedding_size)
+        self.attention = BahdanauAttention(hidden_size)
+        self.attention_function = self.forward_step_bahdanau
+        self.gru = nn.GRU(embedding_size + hidden_size,
+                          hidden_size, batch_first=True)
+        self.device = device
+        self.max_length = max_length
+
+        self.out = nn.Linear(hidden_size, output_size)
+        self.dropout = nn.Dropout(dropout_p)
+
+    def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
+        batch_size = encoder_outputs.size(0)
+        decoder_input = torch.empty(
+            batch_size, 1, dtype=torch.long, device=self.device).fill_(self.SOS_token)
+        decoder_hidden = encoder_hidden
+        decoder_outputs = []
+        attentions = []
+
+        for i in range(self.max_length):
+
+            decoder_output, decoder_hidden, attn_weights = self.attention_function(
+                decoder_input, decoder_hidden, encoder_outputs
+            )
+            decoder_outputs.append(decoder_output)
+            attentions.append(attn_weights)
+
+            if target_tensor is not None:
+                # Teacher forcing: Feed the target as the next input
+                decoder_input = target_tensor[:, i].unsqueeze(
+                    1)  # Teacher forcing
+            else:
+                # Without teacher forcing: use its own predictions as the next input
+                _, topi = decoder_output.topk(1)
+                # detach from history as input
+                decoder_input = topi.squeeze(-1).detach()
+
+        decoder_outputs = torch.cat(decoder_outputs, dim=1)
+        decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
+        if attentions[0] is not None:
+            attentions = torch.cat(attentions, dim=1)
+        else:
+            attentions = None
+
+        return decoder_outputs, decoder_hidden, attentions
+
+    def forward_step_bahdanau(self, input, hidden, encoder_outputs):
+        embedded = self.dropout(self.embedding(input))
+
+        query = hidden.permute(1, 0, 2)
+        context, attn_weights = self.attention(query, encoder_outputs)
+        input_gru = torch.cat((embedded, context), dim=2)
+
+        output, hidden = self.gru(input_gru, hidden)
+        output = self.out(output)
+
+        return output, hidden, attn_weights

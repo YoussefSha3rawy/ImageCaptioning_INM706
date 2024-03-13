@@ -173,9 +173,8 @@ class ImageCaptioningDataset(Dataset):
             self.root_dir, caption_file), sep='|', names=['image_name', 'comment_number', 'comment'])
         self.image_names = [image for image in os.listdir(
             os.path.join(self.root_dir, self.image_folder, self.stage)) if image.endswith('.jpg')]
-        df = df[df['image_name'].isin(self.image_names)]
         print(
-            f'Loaded {len(self.image_names)} images')
+            f'Loading {len(self.image_names)} {self.stage} images')
         image_captions = df.groupby('image_name')[
             'comment'].apply(list).to_dict()
         self.prepare_language_model(image_captions)

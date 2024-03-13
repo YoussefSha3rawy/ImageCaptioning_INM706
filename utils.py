@@ -9,7 +9,10 @@ def save_checkpoint(epoch, model, model_name, optimizer):
     ckpt = {'epoch': epoch, 'model_weights': model.state_dict(
     ), 'optimizer_state': optimizer.state_dict()}
     file_name = f"{model_name}_ckpt_{str(epoch)}.pth"
-    torch.save(ckpt, os.path.join('weights', file_name))
+
+    directory_name = 'weights'
+    os.makedirs(directory_name, exist_ok=True)
+    torch.save(ckpt, os.path.join(directory_name, file_name))
 
 
 def load_checkpoint(model, file_name):
