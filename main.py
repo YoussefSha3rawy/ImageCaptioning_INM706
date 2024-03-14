@@ -29,9 +29,9 @@ def evaluate(encoder, decoder, dataloader):
     for i, (index, image_tensor, tokenized_captions, captions) in enumerate(dataloader):
         all_captions.extend(np.transpose(np.array(captions), [1, 0]))
         with torch.no_grad():
-            encoder_outputs = encoder(image_tensor.to(device))
+            encoder_outputs, encoder_hidden = encoder(image_tensor.to(device))
             decoder_outputs, decoder_hidden, _ = decoder(
-                encoder_outputs)
+                encoder_outputs, encoder_hidden)
 
             _, topi = decoder_outputs.topk(1)
             decoded_ids = topi.squeeze()
@@ -45,10 +45,20 @@ def evaluate(encoder, decoder, dataloader):
                 decoded_sentences.append(decoded_words)
     wandb.log({'test_image': wandb.Image(image_tensor[-1].cpu().permute(1, 2, 0).numpy(
     ), caption=f'prediction: {" ".join(decoded_words)}\nground truth: {np.array(captions)[:, -1]}')})
-    bleu = bleu_score(decoded_sentences, list(
-        map(lambda x: [y.split(' ') for y in x], all_captions)))
 
-    return bleu
+    all_captions_split = list(
+        map(lambda x: [y.split(' ') for y in x], all_captions))
+
+    bleu_1 = bleu_score(decoded_sentences,
+                        all_captions_split, max_n=1, weights=[1])
+    bleu_2 = bleu_score(decoded_sentences,
+                        all_captions_split, max_n=2, weights=[0, 1])
+    bleu_3 = bleu_score(decoded_sentences, all_captions_split,
+                        max_n=3, weights=[0, 0, 1])
+    bleu_4 = bleu_score(decoded_sentences, all_captions_split,
+                        max_n=4, weights=[0, 0, 0, 1])
+
+    return bleu_1, bleu_2, bleu_3, bleu_4
 
 
 def plot_attention(input_sentence, output_words, attentions):
@@ -138,8 +148,8 @@ def train(
     for epoch in range(1, n_epochs + 1):
         loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer,
                            decoder_optimizer, criterion)
-        bleu = evaluate(encoder, decoder,
-                        test_dataloader)
+        bleu_1, bleu_2, bleu_3, bleu_4 = evaluate(encoder, decoder,
+                                                  test_dataloader)
         print_loss_total += loss
         plot_loss_total += loss
 
@@ -147,20 +157,21 @@ def train(
             print_loss_avg = print_loss_total / print_every
             print_loss_total = 0
             print(
-                f"Epoch: {epoch}/{n_epochs}, Loss {print_loss_avg}, Bleu score: {bleu}")
+                f"Epoch: {epoch}/{n_epochs}, Loss {print_loss_avg}, Bleu scores: {bleu_1, bleu_2, bleu_3, bleu_4}")
 
         if epoch % plot_every == 0:
             plot_loss_avg = plot_loss_total / plot_every
-            logger.log({'loss_avg': plot_loss_avg})
-            logger.log({'bleu_score': bleu})
+            logger.log({'bleu_1_score': bleu_1, 'bleu_2_score': bleu_2,
+                       'bleu_3_score': bleu_3, 'bleu_4_score': bleu_4, 'loss_avg': plot_loss_avg})
             plot_losses.append(plot_loss_avg)
             plot_loss_total = 0
 
-        if bleu > max_bleu:
-            print(f'New best bleu score: {bleu}')
-            max_bleu = bleu
+        avg_bleu = np.mean([bleu_1, bleu_2, bleu_3, bleu_4])
+        if avg_bleu > max_bleu:
+            print(f'New best bleu score: {avg_bleu}')
+            max_bleu = avg_bleu
             save_checkpoint(
-                epoch, encoder, f'encoder_{encoder.cnn.__class__.__name__}', encoder_optimizer)
+                epoch, encoder, f'encoder_{encoder.__class__.__name__}', encoder_optimizer)
             save_checkpoint(
                 epoch, decoder, f'decoder_{decoder.__class__.__name__}', decoder_optimizer)
 
@@ -182,9 +193,6 @@ def main():
     print(f'{model_settings = }\n{train_settings = }\n{dataset_settings = }\n'
           f'{dataloader_settings = }\n{encoder_settings = }\n{decoder_settings = }')
 
-    wandb_logger = Logger('ImageCaptioning', 'INM706_Image_Captioning')
-    logger = wandb_logger.get_logger()
-
     train_dataset = ImageCaptioningDataset(
         **dataset_settings, stage='train', transforms=ResNet50_Weights.DEFAULT.transforms())
     train_dataloader = DataLoader(
@@ -195,13 +203,18 @@ def main():
     test_dataloader = DataLoader(
         test_dataset, **dataloader_settings)
 
-    encoder = ImageEncoderRNN(**model_settings, **encoder_settings).to(device)
-    decoder = DecoderRNN(**model_settings, **decoder_settings,
-                         output_size=train_dataset.lang.n_words, device=device).to(device)
+    # encoder = ImageEncoderRNN(**model_settings, **encoder_settings).to(device)
+    # decoder = DecoderRNN(**model_settings, **decoder_settings,
+    #                      output_size=train_dataset.lang.n_words, device=device).to(device)
     encoder = ImageEncoderSelfAttentionRNN(
         **model_settings, **encoder_settings).to(device)
     decoder = AttnDecoderGRU(**model_settings, **decoder_settings,
                              output_size=train_dataset.lang.n_words, device=device).to(device)
+
+    wandb_logger = Logger(
+        'ImageCaptioning', f'INM706_Image_Captioning_{encoder.__class__.__name__}_{decoder.__class__.__name__}')
+    logger = wandb_logger.get_logger()
+    logger.log({'settings': settings})
     logger.watch(encoder)
     logger.watch(decoder)
 

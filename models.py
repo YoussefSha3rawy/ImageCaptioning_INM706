@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models import resnet50, ResNet50_Weights
 import math
-from attention_models import BahdanauAttention, SelfAttention
+from attention_models import BahdanauAttention, SelfAttention, AttentionMultiHead
 
 
 class ImageEncoderRNN(nn.Module):
@@ -28,13 +28,14 @@ class ImageEncoderRNN(nn.Module):
 
 
 class ImageEncoderSelfAttentionRNN(nn.Module):
-    def __init__(self, hidden_size: int, freeze_backbone=False, backbone: str = None):
+    def __init__(self, hidden_size: int, freeze_backbone=False, nr_heads=1, backbone: str = None):
         super(ImageEncoderSelfAttentionRNN, self).__init__()
         self.hidden_size = hidden_size
 
         self.cnn = resnet50(weights=ResNet50_Weights.DEFAULT)
 
-        self.attention = SelfAttention(input_size=2048, out_size=hidden_size)
+        self.attention = AttentionMultiHead(
+            input_size=2048, out_size=hidden_size, nr_heads=nr_heads)
 
         if freeze_backbone:
             for param in self.cnn.parameters():
@@ -56,9 +57,13 @@ class ImageEncoderSelfAttentionRNN(nn.Module):
 
         out, att = self.attention(x.reshape(x.shape[0], -1, x.shape[1]))
 
+        out = F.dropout(out, p=0.3)
+
         x = self.cnn.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.cnn.fc(x)
+
+        x = F.dropout(x, 0.2)
 
         x = x.unsqueeze(0)
 

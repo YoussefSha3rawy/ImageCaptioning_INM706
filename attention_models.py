@@ -29,7 +29,8 @@ class LuongAttn(nn.Module):
         super(LuongAttn, self).__init__()
         self.method = method
         if self.method not in ['dot', 'general', 'concat']:
-            raise ValueError(self.method, "is not an appropriate attention method.")
+            raise ValueError(
+                self.method, "is not an appropriate attention method.")
         self.hidden_size = hidden_size
         if self.method == 'general':
             self.attn = nn.Linear(self.hidden_size, hidden_size)
@@ -43,7 +44,6 @@ class LuongAttn(nn.Module):
     def general_score(self, hidden, encoder_output):
         energy = self.attn(encoder_output)
         return torch.sum(hidden * energy, dim=2), None
-
 
     def forward(self, hidden, encoder_outputs):
         # Calculate the attention weights (energies) based on the given method
@@ -60,22 +60,24 @@ class LuongAttn(nn.Module):
 
 class AttentionMultiHead(nn.Module):
 
-    def __init__(self, input_size, hidden_size, nr_heads):
+    def __init__(self, input_size, out_size, nr_heads):
         super(AttentionMultiHead, self).__init__()
-        self.hidden_size = hidden_size
         self.heads = nn.ModuleList([])
-        self.heads.extend([SelfAttention(input_size, hidden_size) for idx_head in range(nr_heads)])
-        self.linear_out = nn.Linear(nr_heads*hidden_size, input_size)
+        self.heads.extend([SelfAttention(input_size, out_size)
+                          for idx_head in range(nr_heads)])
+        self.linear_out = nn.Linear(nr_heads*out_size, out_size)
         return
 
     def forward(self, input_vector):
         all_heads = []
+        all_atts = []
         for head in self.heads:
-            out = head(input_vector)
+            out, att = head(input_vector)
             all_heads.append(out)
+            all_atts.append(att)
         z_out_concat = torch.cat(all_heads, dim=2)
         z_out_out = F.relu(self.linear_out(z_out_concat))
-        return z_out_out
+        return z_out_out, all_atts
 
 
 class SelfAttention(nn.Module):
@@ -83,10 +85,13 @@ class SelfAttention(nn.Module):
     def __init__(self, input_size, out_size):
         super(SelfAttention, self).__init__()
         self.dk_size = out_size
-        self.query_linear = nn.Linear(in_features=input_size, out_features=out_size)
-        self.key_linear = nn.Linear(in_features=input_size, out_features=out_size)
-        self.value_linear = nn.Linear(in_features=input_size, out_features=out_size)
-        self.softmax = nn.Softmax()
+        self.query_linear = nn.Linear(
+            in_features=input_size, out_features=out_size)
+        self.key_linear = nn.Linear(
+            in_features=input_size, out_features=out_size)
+        self.value_linear = nn.Linear(
+            in_features=input_size, out_features=out_size)
+        self.softmax = nn.Softmax(dim=-1)
         return
 
     def forward(self, input_vector):
