@@ -5,17 +5,18 @@ decoder:
   embedding_size: 256
 encoder:
   freeze_backbone: True
-  nr_heads: 6
+  # nr_heads: 6
 train:
   learning_rate: 0.001
   print_every: 1
   plot_every: 1
   n_epochs: 100
+  teacher_forcing_ratio: 0.7
 dataset:
   root_dir: flickr30k_images
   caption_file: results.csv
   image_folder: 'flickr30k_images'
   max_length: 20
 dataloader:
-  batch_size: 256
+  batch_size: 64
   shuffle: True

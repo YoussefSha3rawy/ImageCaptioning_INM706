@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import resnet50, ResNet50_Weights
+from torchvision.models import resnet50, ResNet50_Weights, resnet101, ResNet101_Weights
 import math
 from attention_models import BahdanauAttention, SelfAttention, AttentionMultiHead
 
@@ -24,15 +24,19 @@ class ImageEncoderRNN(nn.Module):
 
         x = x.unsqueeze(0)
 
+        x = F.dropout(x, 0.2)
+
         return None, x
 
 
 class ImageEncoderSelfAttentionRNN(nn.Module):
-    def __init__(self, hidden_size: int, freeze_backbone=False, nr_heads=1, backbone: str = None):
+    def __init__(self, hidden_size: int, freeze_backbone=False, nr_heads=1, backbone_name: str = None):
         super(ImageEncoderSelfAttentionRNN, self).__init__()
         self.hidden_size = hidden_size
 
-        self.cnn = resnet50(weights=ResNet50_Weights.DEFAULT)
+        backbone = resnet101(weights=ResNet101_Weights.DEFAULT)
+
+        self.cnn = nn.Sequential(*list(backbone.children())[:-2])
 
         self.attention = AttentionMultiHead(
             input_size=2048, out_size=hidden_size, nr_heads=nr_heads)
@@ -41,31 +45,18 @@ class ImageEncoderSelfAttentionRNN(nn.Module):
             for param in self.cnn.parameters():
                 param.requires_grad = False
 
-        self.cnn.fc = nn.Linear(self.cnn.fc.in_features, hidden_size)
+        # self.cnn.fc = nn.Linear(self.cnn.fc.in_features, hidden_size)
         # self.conv = nn.Conv2d(2048, 20, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.cnn.conv1(x)
-        x = self.cnn.bn1(x)
-        x = self.cnn.relu(x)
-        x = self.cnn.maxpool(x)
+        x = self.cnn(x)
 
-        x = self.cnn.layer1(x)
-        x = self.cnn.layer2(x)
-        x = self.cnn.layer3(x)
-        x = self.cnn.layer4(x)
+        x = x.permute(0, 2, 3, 1)
 
-        out, att = self.attention(x.reshape(x.shape[0], -1, x.shape[1]))
+        x = x.view(x.shape[0], -1, x.shape[-1])
+        out, att = self.attention(x)
 
         out = F.dropout(out, p=0.3)
-
-        x = self.cnn.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.cnn.fc(x)
-
-        x = F.dropout(x, 0.2)
-
-        x = x.unsqueeze(0)
 
         return out, x
 
@@ -82,11 +73,11 @@ class DecoderRNN(nn.Module):
         self.device = device
         self.max_length = max_length
 
-    def forward(self, encoder_output, target_tensor=None):
-        batch_size = encoder_output.size(1)
+    def forward(self, encoder_output, encoder_hidden, target_tensor=None):
+        batch_size = encoder_hidden.size(1)
         decoder_input = torch.empty(
             batch_size, 1, dtype=torch.long, device=self.device).fill_(self.SOS_token)
-        decoder_hidden = encoder_output.clone()
+        decoder_hidden = encoder_hidden.clone()
         decoder_outputs = []
 
         for i in range(self.max_length):

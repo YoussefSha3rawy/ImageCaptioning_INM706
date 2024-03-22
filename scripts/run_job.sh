@@ -7,10 +7,10 @@
 #SBATCH --mem=90GB                                 # Expected ammount CPU RAM needed (Not GPU Memory)
 #SBATCH --time=48:00:00                            # Expected ammount of time to run Time limit hrs:min:sec
 #SBATCH --gres=gpu:1                               # Use one gpu.
-#SBATCH -e results/%x_%j.e                         # Standard output and error log [%j is replaced with the jobid]
-#SBATCH -o results/%x_%j.o                         # [%x with the job name], make sure 'results' folder exists.
-#SBATCH --error inm706_err.err
-#SBATCH --output inm706_out.output
+#SBATCH -e results/%x.e                         # Standard output and error log [%j is replaced with the jobid]
+#SBATCH -o results/%x.o                         # [%x with the job name], make sure 'results' folder exists.
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=adfx751@city.ac.uk
 
 #Enable modules command
 
@@ -25,9 +25,10 @@ echo $WANDB_API_KEY
 
 python --version
 #module load libs/nvidia-cuda/11.2.0/bin
+nvidia-smi
 
 wandb login $WANDB_API_KEY --relogin
 #pip freeze
 #Run your script.
-export https_proxy=http://hpc-proxy00.city.ac.uk
+export https_proxy=http://hpc-proxy00.city.ac.uk:3128
 python3 main.py

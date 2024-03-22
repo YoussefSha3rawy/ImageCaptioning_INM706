@@ -104,7 +104,7 @@ def plot_and_show_attention(encoder, decoder, input_sentence, input_tensor, outp
 
 
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
-                decoder_optimizer, criterion):
+                decoder_optimizer, criterion, teacher_forcing_ratio):
 
     total_loss = 0
     for i, (index, image_tensor, tokenized_captions, captions) in enumerate(dataloader):
@@ -116,8 +116,12 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
             decoder_optimizer.zero_grad()
 
             encoder_outputs, encoder_hidden = encoder(image_tensor)
-            decoder_outputs, decoder_hidden, _ = decoder(
-                encoder_outputs, encoder_hidden, tokenized_caption)
+            if np.random.random_sample() < teacher_forcing_ratio:
+                decoder_outputs, decoder_hidden, _ = decoder(
+                    encoder_outputs, encoder_hidden, tokenized_caption)
+            else:
+                decoder_outputs, decoder_hidden, _ = decoder(
+                    encoder_outputs, encoder_hidden)
 
             loss = criterion(
                 decoder_outputs.view(-1, decoder_outputs.size(-1)),
@@ -134,7 +138,7 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
 
 
 def train(
-        train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs, learning_rate=0.001,
+        train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs, teacher_forcing_ratio=1.0, learning_rate=0.001,
         print_every=100, plot_every=100):
     plot_losses = []
     print_loss_total = 0  # Reset every print_every
@@ -147,7 +151,7 @@ def train(
     max_bleu = 0
     for epoch in range(1, n_epochs + 1):
         loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer,
-                           decoder_optimizer, criterion)
+                           decoder_optimizer, criterion, teacher_forcing_ratio)
         bleu_1, bleu_2, bleu_3, bleu_4 = evaluate(encoder, decoder,
                                                   test_dataloader)
         print_loss_total += loss
@@ -203,18 +207,17 @@ def main():
     test_dataloader = DataLoader(
         test_dataset, **dataloader_settings)
 
-    # encoder = ImageEncoderRNN(**model_settings, **encoder_settings).to(device)
-    # decoder = DecoderRNN(**model_settings, **decoder_settings,
-    #                      output_size=train_dataset.lang.n_words, device=device).to(device)
-    encoder = ImageEncoderSelfAttentionRNN(
-        **model_settings, **encoder_settings).to(device)
-    decoder = AttnDecoderGRU(**model_settings, **decoder_settings,
-                             output_size=train_dataset.lang.n_words, device=device).to(device)
+    encoder = ImageEncoderRNN(**model_settings, **encoder_settings).to(device)
+    decoder = DecoderRNN(**model_settings, **decoder_settings,
+                         output_size=train_dataset.lang.n_words, device=device).to(device)
+    # encoder = ImageEncoderSelfAttentionRNN(
+    #     **model_settings, **encoder_settings).to(device)
+    # decoder = AttnDecoderGRU(**model_settings, **decoder_settings,
+    #                          output_size=train_dataset.lang.n_words, device=device).to(device)
 
     wandb_logger = Logger(
-        'ImageCaptioning', f'INM706_Image_Captioning_{encoder.__class__.__name__}_{decoder.__class__.__name__}')
+        settings, f'ImageCaptioning_{encoder.__class__.__name__}_{decoder.__class__.__name__}', 'INM706_Image_Captioning')
     logger = wandb_logger.get_logger()
-    logger.log({'settings': settings})
     logger.watch(encoder)
     logger.watch(decoder)
 
