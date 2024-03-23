@@ -56,8 +56,6 @@ class ImageEncoderSelfAttentionRNN(nn.Module):
         x = x.view(x.shape[0], -1, x.shape[-1])
         out, att = self.attention(x)
 
-        out = F.dropout(out, p=0.3)
-
         return out, x
 
 
@@ -108,13 +106,13 @@ class DecoderRNN(nn.Module):
         return output, hidden
 
 
-class AttnDecoderGRU(nn.Module):
+class BahdanauAttnDecoderGRU(nn.Module):
     max_length = 10
     SOS_token = 0
     EOS_token = 1
 
     def __init__(self, hidden_size, output_size, embedding_size, max_length, dropout_p=0.1, device=torch.device('cpu')):
-        super(AttnDecoderGRU, self).__init__()
+        super(BahdanauAttnDecoderGRU, self).__init__()
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.dropout_p = dropout_p
@@ -175,3 +173,51 @@ class AttnDecoderGRU(nn.Module):
         output = self.out(output)
 
         return output, hidden, attn_weights
+
+
+class SelfAttnDecoderRNN(nn.Module):
+    SOS_token = 0
+    EOS_token = 1
+
+    def __init__(self, embedding_size, hidden_size, output_size, max_length=10, device=torch.device('cpu')):
+        super(SelfAttnDecoderRNN, self).__init__()
+        self.embedding = nn.Embedding(output_size, embedding_size)
+        self.gru = nn.GRU(embedding_size, hidden_size, batch_first=True)
+        self.out = nn.Linear(embedding_size, output_size)
+        self.device = device
+        self.max_length = max_length
+
+    def forward(self, encoder_output, encoder_hidden, target_tensor=None):
+        batch_size = encoder_output.size(0)
+        decoder_input = torch.empty(
+            batch_size, 1, dtype=torch.long, device=self.device).fill_(self.SOS_token)
+        decoder_hidden = encoder_output.mean(dim=1)
+        decoder_outputs = []
+
+        for i in range(self.max_length):
+            decoder_output, decoder_hidden = self.forward_step(
+                decoder_input, encoder_output, decoder_hidden)
+            decoder_outputs.append(decoder_output)
+
+            if target_tensor is not None:
+                # Teacher forcing: Feed the target as the next input
+                decoder_input = target_tensor[:, i].unsqueeze(
+                    1)  # Teacher forcing
+            else:
+                # Without teacher forcing: use its own predictions as the next input
+                _, topi = decoder_output.topk(1)
+                # detach from history as input
+                decoder_input = topi.squeeze(-1).detach()
+
+        decoder_outputs = torch.cat(decoder_outputs, dim=1)
+        decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
+        # We return `None` for consistency in the training loop
+        return decoder_outputs, decoder_hidden, None
+
+    def forward_step(self, input, encoder_output, hidden):
+        output = self.embedding(input)
+        output = F.relu(output)
+        gru_input = torch.cat((output, encoder_output), dim=2)
+        output, hidden = self.gru(gru_input, hidden)
+        output = self.out(output)
+        return output, hidden

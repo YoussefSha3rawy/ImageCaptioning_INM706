@@ -55,10 +55,10 @@ class ImageCaptioningDataset(Dataset):
         self.load_captions(caption_file)
 
     def __len__(self):
-        return len(self.image_names)
+        return len(self.captions)
 
     def __getitem__(self, index):
-        image_name = self.image_names[index]
+        image_name = self.captions.iloc[index]['image_name']
         image_path = os.path.join(
             self.root_dir, self.image_folder, self.stage, image_name)
         image = Image.open(image_path).convert('RGB')
@@ -66,26 +66,30 @@ class ImageCaptioningDataset(Dataset):
         if self.transforms:
             image = self.transforms(image)
 
-        captions = self.captions[image_name]
+        caption = self.captions.iloc[index]['normalized_comment']
 
-        tokenized_captions = [self.tokenize_caption(
-            caption) for caption in captions]
+        tokenized_caption, length = self.tokenize_caption(caption)
 
-        return index, image, tokenized_captions, captions
+        return image_name, image, tokenized_caption, length, caption
+
+    def get_image_captions(self, image_name):
+        return self.captions[self.captions['image_name'] == image_name]['normalized_comment'].values
 
     def load_captions(self, caption_file: str):
         df = pd.read_csv(os.path.join(
-            self.root_dir, caption_file), sep='|', names=['image_name', 'comment_number', 'comment'])
-        self.image_names = [image for image in os.listdir(
+            self.root_dir, caption_file), sep='|', header=0)
+        df.columns = df.columns.str.strip()
+        self.prepare_language_model(df)
+
+    def prepare_language_model(self, image_captions: pd.DataFrame):
+        image_captions = self.normalize_captions(image_captions)
+
+        image_names = [image for image in os.listdir(
             os.path.join(self.root_dir, self.image_folder, self.stage)) if image.endswith('.jpg')]
         print(
-            f'Loading {len(self.image_names)} {self.stage} images')
-        image_captions = df.groupby('image_name')[
-            'comment'].apply(list).to_dict()
-        self.prepare_language_model(image_captions)
-
-    def prepare_language_model(self, image_captions: dict[str, list[str]]):
-        self.normalize_captions(image_captions)
+            f'Loaded {len(image_names)} {self.stage} images')
+        self.captions = image_captions[image_captions['image_name'].isin(
+            image_names)][['image_name', 'normalized_comment']]
 
         if os.path.exists('lang.pickle'):
             self.load_language_model()
@@ -93,9 +97,8 @@ class ImageCaptioningDataset(Dataset):
 
         self.lang = Lang('eng')
 
-        for value in self.captions.values():
-            for caption in value:
-                self.lang.addSentence(caption)
+        for value in image_captions['normalized_comment']:
+            self.lang.addSentence(value)
 
         with open("lang.pickle", "wb") as output_file:
             pickle.dump(self.lang, output_file)
@@ -104,12 +107,15 @@ class ImageCaptioningDataset(Dataset):
         with open("lang.pickle", "rb") as input_file:
             self.lang = pickle.load(input_file)
 
-    def normalize_captions(self, image_captions: dict[str, list[str]]):
-        self.captions = {}
-        for key, value in image_captions.items():
-            normalized_captions = [self.normalize_string(
-                caption) for caption in value]
-            self.captions[key] = normalized_captions
+    def normalize_captions(self, image_captions: pd.DataFrame):
+        if 'normalized_comment' not in image_captions.columns:
+            print('Normalizing captions...')
+            image_captions['normalized_comment'] = image_captions['comment'].apply(
+                self.normalize_string)
+            image_captions.to_csv(os.path.join(
+                self.root_dir, self.caption_file), sep='|', index=False)
+
+        return image_captions
 
     def tokenize_caption(self, sentence):
         tokenized_sentence = [self.lang.word2index[word]
@@ -117,7 +123,7 @@ class ImageCaptioningDataset(Dataset):
         tokenized_sentence.append(self.lang.EOS_TOKEN)
         input_ids = torch.zeros(self.max_length, dtype=torch.long)
         input_ids[:len(tokenized_sentence)] = torch.tensor(tokenized_sentence)
-        return input_ids
+        return input_ids, len(tokenized_sentence)
 
     def unicode_to_ascii(self, s):
         return ''.join(
@@ -130,6 +136,15 @@ class ImageCaptioningDataset(Dataset):
         s = re.sub(r"([.!?])", r" \1", s)
         s = re.sub(r"[^a-zA-Z!?]+", r" ", s)
         return s.strip()
+
+    def tokens_to_sentence(self, tokenized_caption):
+        decoded_words = []
+        for idx in tokenized_caption:
+            if idx.item() == self.lang.EOS_TOKEN:
+                break
+            decoded_words.append(
+                self.lang.index2word[idx.item()])
+        return decoded_words
 
 
 def prepare_dataset(split=0.8):

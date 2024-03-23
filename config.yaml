@@ -11,7 +11,7 @@ train:
   print_every: 1
   plot_every: 1
   n_epochs: 100
-  teacher_forcing_ratio: 0.7
+  teacher_forcing_ratio: 1.0
 dataset:
   root_dir: flickr30k_images
   caption_file: results.csv
