@@ -67,7 +67,7 @@ class ImageCaptioningDataset(Dataset):
             image = self.transforms(image)
 
         captions = self.captions[self.captions['image_name']
-                                 == image_name]['normalized_comment'].values
+                                 == image_name]['normalized_comment'].to_list()
 
         tokenized_captions = [self.tokenize_caption(
             caption)[0] for caption in captions]
