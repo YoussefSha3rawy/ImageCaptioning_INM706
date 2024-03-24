@@ -59,12 +59,18 @@ class ImageCaptioningDataset(Dataset):
 
     def __getitem__(self, index):
         image_name = self.captions.iloc[index]['image_name']
-        image_path = os.path.join(
-            self.root_dir, self.image_folder, self.stage, image_name)
-        image = Image.open(image_path).convert('RGB')
+        if hasattr(self, 'currently_loaded_image') and self.currently_loaded_image == image_name:
+            # Use cached image instead of loading from disk again
+            image = self.cached_image
+        else:
+            image_path = os.path.join(
+                self.root_dir, self.image_folder, self.stage, image_name)
+            image = Image.open(image_path).convert('RGB')
 
-        if self.transforms:
-            image = self.transforms(image)
+            if self.transforms:
+                image = self.transforms(image)
+            self.currently_loaded_image = image_name
+            self.cached_image = image
 
         caption = self.captions.iloc[index]['normalized_comment']
 

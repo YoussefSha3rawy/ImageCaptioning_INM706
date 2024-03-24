@@ -18,5 +18,5 @@ dataset:
   image_folder: 'flickr30k_images'
   max_length: 20
 dataloader:
-  batch_size: 64
+  batch_size: 512
   shuffle: True

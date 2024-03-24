@@ -7,8 +7,8 @@
 #SBATCH --mem=90GB                                 # Expected ammount CPU RAM needed (Not GPU Memory)
 #SBATCH --time=48:00:00                            # Expected ammount of time to run Time limit hrs:min:sec
 #SBATCH --gres=gpu:1                               # Use one gpu.
-#SBATCH -e results/%x.e                         # Standard output and error log [%j is replaced with the jobid]
-#SBATCH -o results/%x.o                         # [%x with the job name], make sure 'results' folder exists.
+#SBATCH -e results/%x_%j.e                         # Standard output and error log [%j is replaced with the jobid]
+#SBATCH -o results/%x_%j.o                         # [%x with the job name], make sure 'results' folder exists.
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=adfx751@city.ac.uk
 

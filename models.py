@@ -6,9 +6,9 @@ import math
 from attention_models import BahdanauAttention, SelfAttention, AttentionMultiHead
 
 
-class ImageEncoderRNN(nn.Module):
+class ImageEncoderVanilla(nn.Module):
     def __init__(self, hidden_size: int, freeze_backbone=False, backbone: str = None):
-        super(ImageEncoderRNN, self).__init__()
+        super(ImageEncoderVanilla, self).__init__()
         self.hidden_size = hidden_size
 
         self.cnn = resnet50(weights=ResNet50_Weights.DEFAULT)

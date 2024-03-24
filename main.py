@@ -1,18 +1,18 @@
 import torch
 import wandb
+import time
 import torch.nn as nn
 from torch import optim
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from dataset import ImageCaptioningDataset
 from logger import Logger
-from models import SelfAttnDecoderRNN, ImageEncoderRNN, ImageEncoderSelfAttentionRNN, BahdanauAttnDecoderGRU,  DecoderRNN
+from models import SelfAttnDecoderRNN, ImageEncoderVanilla, ImageEncoderSelfAttentionRNN, BahdanauAttnDecoderGRU,  DecoderRNN
 from utils import parse_arguments, read_settings, save_checkpoint
 from torch.utils.data import DataLoader
 from torchvision.models import ResNet50_Weights
 from torchtext.data.metrics import bleu_score
 import numpy as np
-from collections import OrderedDict
 
 device = torch.device('cpu')
 if torch.cuda.is_available():
@@ -24,9 +24,10 @@ print(f'{device = }')
 
 
 def evaluate(encoder, decoder, dataloader):
-    all_predicted_captions = OrderedDict()
-    for i, (image_name, image_tensor, tokenized_caption, caption_length, caption) in enumerate(dataloader):
-        with torch.no_grad():
+    all_ground_truths_captions = []
+    decoded_sentences = []
+    with torch.no_grad():
+        for i, (image_name, image_tensor, tokenized_caption, caption_length, caption) in enumerate(dataloader):
             encoder_outputs, encoder_hidden = encoder(image_tensor.to(device))
             decoder_outputs, decoder_hidden, _ = decoder(
                 encoder_outputs, encoder_hidden)
@@ -36,38 +37,28 @@ def evaluate(encoder, decoder, dataloader):
             for decoded_sentence, name in zip(decoded_ids, image_name):
                 sentence = dataloader.dataset.tokens_to_sentence(
                     decoded_sentence)
-                if name not in all_predicted_captions:
-                    all_predicted_captions[name] = []
-                all_predicted_captions[name].append(sentence)
+                decoded_sentences.append(sentence)
+                captions = dataloader.dataset.get_image_captions(name)
+                all_ground_truths_captions.append(
+                    [caption.split(' ') for caption in captions])
 
-        print(f'Step {i}/{len(dataloader)}', end='\r')
+            print(f'Step {i}/{len(dataloader)}', end='\r')
 
-    plot_image = image_tensor[-1].permute(1, 2, 0).numpy()
-    image_captions = dataloader.dataset.get_image_captions(image_name[-1])
-    image_predicted_captions = all_predicted_captions[image_name[-1]]
-    wandb.log({'test_image': wandb.Image(
-        plot_image, caption=f'prediction: {[" ".join(cap) for cap in image_predicted_captions]}\nground truth: {image_captions}')})
-
-    all_captions_split = []
-    for key, predictions in all_predicted_captions.items():
-        for prediction in predictions:
-            captions = dataloader.dataset.get_image_captions(key)
-            all_captions_split.append([caption.split(' ')
-                                      for caption in captions])
-
-    all_captions_split = list(map(lambda x: [y.split(' ') for y in x], [dataloader.dataset.get_image_captions(
-        key) for key, predictions in all_predicted_captions.items() for prediction in predictions]))
-
-    decoded_sentences = [prediction for key, predictions in all_predicted_captions.items(
-    ) for prediction in predictions]
+    for i in range(1, 4):
+        plot_image = image_tensor[-i].permute(1, 2, 0).numpy()
+        image_captions = [' '.join(cap)
+                          for cap in all_ground_truths_captions[-i]]
+        image_predicted_captions = ' '.join(decoded_sentences[-i])
+        wandb.log({f'test_image_{i}': wandb.Image(
+            plot_image, caption=f'prediction: {image_predicted_captions}\nground truth: {image_captions}')})
 
     bleu_1 = bleu_score(decoded_sentences,
-                        all_captions_split, max_n=1, weights=[1])
+                        all_ground_truths_captions, max_n=1, weights=[1])
     bleu_2 = bleu_score(decoded_sentences,
-                        all_captions_split, max_n=2, weights=[0, 1])
-    bleu_3 = bleu_score(decoded_sentences, all_captions_split,
+                        all_ground_truths_captions, max_n=2, weights=[0, 1])
+    bleu_3 = bleu_score(decoded_sentences, all_ground_truths_captions,
                         max_n=3, weights=[0, 0, 1])
-    bleu_4 = bleu_score(decoded_sentences, all_captions_split,
+    bleu_4 = bleu_score(decoded_sentences, all_ground_truths_captions,
                         max_n=4, weights=[0, 0, 0, 1])
 
     return bleu_1, bleu_2, bleu_3, bleu_4
@@ -144,7 +135,6 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
         decoder_optimizer.step()
         encoder_optimizer.step()
         print(f'Step {i}/{len(dataloader)}', end='\r')
-    print()
     return total_loss / len(dataloader)
 
 
@@ -161,10 +151,15 @@ def train(
 
     max_bleu = 0
     for epoch in range(1, n_epochs + 1):
+        epoch_start = time.perf_counter()
         loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer,
                            decoder_optimizer, criterion, teacher_forcing_ratio)
+        epoch_train_end = time.perf_counter()
         bleu_1, bleu_2, bleu_3, bleu_4 = evaluate(encoder, decoder,
                                                   test_dataloader)
+        epoch_evaluate_end = time.perf_counter()
+        logger.log({'epoch_train_time': epoch_train_end - epoch_start,
+                   'epoch_evaluate_time': epoch_evaluate_end - epoch_train_end})
         print_loss_total += loss
         plot_loss_total += loss
 
@@ -181,8 +176,7 @@ def train(
             plot_losses.append(plot_loss_avg)
             plot_loss_total = 0
 
-        avg_bleu = np.mean([bleu_1, bleu_2, bleu_3, bleu_4])
-        if avg_bleu > max_bleu:
+        if avg_bleu := np.mean([bleu_1, bleu_2, bleu_3, bleu_4]) > max_bleu:
             print(f'New best bleu score: {avg_bleu}')
             max_bleu = avg_bleu
             save_checkpoint(
@@ -218,7 +212,8 @@ def main():
     test_dataloader = DataLoader(
         test_dataset, **dataloader_settings)
 
-    encoder = ImageEncoderRNN(**model_settings, **encoder_settings).to(device)
+    encoder = ImageEncoderVanilla(
+        **model_settings, **encoder_settings).to(device)
     decoder = DecoderRNN(**model_settings, **decoder_settings,
                          output_size=train_dataset.lang.n_words, device=device).to(device)
     # encoder = ImageEncoderSelfAttentionRNN(
