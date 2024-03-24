@@ -55,28 +55,24 @@ class ImageCaptioningDataset(Dataset):
         self.load_captions(caption_file)
 
     def __len__(self):
-        return len(self.captions)
+        return len(self.captions['image_name'].unique())
 
     def __getitem__(self, index):
         image_name = self.captions.iloc[index]['image_name']
-        if hasattr(self, 'currently_loaded_image') and self.currently_loaded_image == image_name:
-            # Use cached image instead of loading from disk again
-            image = self.cached_image
-        else:
-            image_path = os.path.join(
-                self.root_dir, self.image_folder, self.stage, image_name)
-            image = Image.open(image_path).convert('RGB')
+        image_path = os.path.join(
+            self.root_dir, self.image_folder, self.stage, image_name)
+        image = Image.open(image_path).convert('RGB')
 
-            if self.transforms:
-                image = self.transforms(image)
-            self.currently_loaded_image = image_name
-            self.cached_image = image
+        if self.transforms:
+            image = self.transforms(image)
 
-        caption = self.captions.iloc[index]['normalized_comment']
+        captions = self.captions[self.captions['image_name']
+                                 == image_name]['normalized_comment'].values
 
-        tokenized_caption, length = self.tokenize_caption(caption)
+        tokenized_captions = [self.tokenize_caption(
+            caption)[0] for caption in captions]
 
-        return image_name, image, tokenized_caption, length, caption
+        return image_name, image, tokenized_captions, captions
 
     def get_image_captions(self, image_name):
         return self.captions[self.captions['image_name'] == image_name]['normalized_comment'].values

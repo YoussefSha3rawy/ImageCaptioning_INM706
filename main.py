@@ -27,20 +27,19 @@ def evaluate(encoder, decoder, dataloader):
     all_ground_truths_captions = []
     decoded_sentences = []
     with torch.no_grad():
-        for i, (image_name, image_tensor, tokenized_caption, caption_length, caption) in enumerate(dataloader):
+        for i, (image_name, image_tensor, tokenized_caption, caption_texts) in enumerate(dataloader):
             encoder_outputs, encoder_hidden = encoder(image_tensor.to(device))
             decoder_outputs, decoder_hidden, _ = decoder(
                 encoder_outputs, encoder_hidden)
 
             _, topi = decoder_outputs.topk(1)
             decoded_ids = topi.squeeze()
-            for decoded_sentence, name in zip(decoded_ids, image_name):
+            for decoded_sentence, caption_text in zip(decoded_ids, caption_texts):
                 sentence = dataloader.dataset.tokens_to_sentence(
                     decoded_sentence)
                 decoded_sentences.append(sentence)
-                captions = dataloader.dataset.get_image_captions(name)
                 all_ground_truths_captions.append(
-                    [caption.split(' ') for caption in captions])
+                    [caption.split(' ') for caption in caption_text])
 
             print(f'Step {i}/{len(dataloader)}', end='\r')
 
@@ -110,30 +109,31 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
                 decoder_optimizer, criterion, teacher_forcing_ratio):
 
     total_loss = 0
-    for i, (index, image_tensor, tokenized_caption, caption_length, caption_text) in enumerate(dataloader):
-        image_tensor = image_tensor.to(device)
-        tokenized_caption = tokenized_caption.to(device)
-        encoder_optimizer.zero_grad()
-        decoder_optimizer.zero_grad()
+    for i, (image_name, image_tensor, tokenized_captions, caption_texts) in enumerate(dataloader):
+        for tokenized_caption in tokenized_captions:
+            image_tensor = image_tensor.to(device)
+            tokenized_caption = tokenized_caption.to(device)
+            encoder_optimizer.zero_grad()
+            decoder_optimizer.zero_grad()
 
-        encoder_outputs, encoder_hidden = encoder(image_tensor)
+            encoder_outputs, encoder_hidden = encoder(image_tensor)
 
-        if np.random.random_sample() < teacher_forcing_ratio:
-            decoder_outputs, decoder_hidden, _ = decoder(
-                encoder_outputs, encoder_hidden, tokenized_caption)
-        else:
-            decoder_outputs, decoder_hidden, _ = decoder(
-                encoder_outputs, encoder_hidden)
+            if np.random.random_sample() < teacher_forcing_ratio:
+                decoder_outputs, decoder_hidden, _ = decoder(
+                    encoder_outputs, encoder_hidden, tokenized_caption)
+            else:
+                decoder_outputs, decoder_hidden, _ = decoder(
+                    encoder_outputs, encoder_hidden)
 
-        loss = criterion(
-            decoder_outputs.view(-1, decoder_outputs.size(-1)),
-            tokenized_caption.view(-1)
-        )
-        loss.backward()
+            loss = criterion(
+                decoder_outputs.view(-1, decoder_outputs.size(-1)),
+                tokenized_caption.view(-1)
+            )
+            loss.backward()
 
-        total_loss += loss.item()
-        decoder_optimizer.step()
-        encoder_optimizer.step()
+            total_loss += loss.item()
+            decoder_optimizer.step()
+            encoder_optimizer.step()
         print(f'Step {i}/{len(dataloader)}', end='\r')
     return total_loss / len(dataloader)
 
@@ -151,6 +151,8 @@ def train(
 
     max_bleu = 0
     for epoch in range(1, n_epochs + 1):
+        logger.inc_step()
+
         epoch_start = time.perf_counter()
         loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer,
                            decoder_optimizer, criterion, teacher_forcing_ratio)
@@ -223,9 +225,8 @@ def main():
     # decoder = AttnDecoderGRU(**model_settings, **decoder_settings,
     #                          output_size=train_dataset.lang.n_words, device=device).to(device)
 
-    wandb_logger = Logger(
+    logger = Logger(
         settings, f'ImageCaptioning_{encoder.__class__.__name__}_{decoder.__class__.__name__}', 'INM706_Image_Captioning')
-    logger = wandb_logger.get_logger()
     logger.watch(encoder)
     logger.watch(decoder)
 
