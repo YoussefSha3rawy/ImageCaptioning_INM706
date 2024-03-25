@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from dataset import ImageCaptioningDataset
 from logger import Logger
-from models import SelfAttnDecoderRNN, ImageEncoderVanilla, ImageEncoderAttention, BahdanauAttnDecoderGRU,  DecoderRNN
+from models import SelfAttnDecoderRNN, ImageEncoderFC, ImageEncoderAttention, BahdanauAttnDecoderGRU,  DecoderRNN
 from utils import parse_arguments, read_settings, save_checkpoint
 from torch.utils.data import DataLoader
 from torchvision.models import ResNet50_Weights, EfficientNet_V2_S_Weights
@@ -28,9 +28,9 @@ def evaluate(encoder, decoder, dataloader):
     decoded_sentences = []
     with torch.no_grad():
         for i, (image_name, image_tensor, tokenized_caption, caption_texts) in enumerate(dataloader):
-            encoder_outputs, encoder_hidden = encoder(image_tensor.to(device))
+            encoder_outputs = encoder(image_tensor.to(device))
             decoder_outputs, decoder_hidden, _ = decoder(
-                encoder_outputs, encoder_hidden)
+                encoder_outputs)
 
             _, topi = decoder_outputs.topk(1)
             decoded_ids = topi.squeeze()
@@ -49,19 +49,29 @@ def evaluate(encoder, decoder, dataloader):
         image_captions = [' '.join(cap)
                           for cap in all_ground_truths_captions[-i]]
         image_predicted_captions = ' '.join(decoded_sentences[-i])
+        bleu_scores = calculate_bleu_scores(decoded_sentences[-i:][:1],
+                                            all_ground_truths_captions[-i:][:1])
         wandb.log({f'test_image_{i}': wandb.Image(
-            plot_image, caption=f'prediction: {image_predicted_captions}\nground truth: {image_captions}')})
+            plot_image, caption=f'prediction: {image_predicted_captions}\n'
+                                f'ground truth: {image_captions}\n'
+                                f'bleu scores: {bleu_scores}')})
 
-    bleu_1 = bleu_score(decoded_sentences,
-                        all_ground_truths_captions, max_n=1, weights=[1])
-    bleu_2 = bleu_score(decoded_sentences,
-                        all_ground_truths_captions, max_n=2, weights=[0, 1])
-    bleu_3 = bleu_score(decoded_sentences, all_ground_truths_captions,
-                        max_n=3, weights=[0, 0, 1])
-    bleu_4 = bleu_score(decoded_sentences, all_ground_truths_captions,
-                        max_n=4, weights=[0, 0, 0, 1])
+    bleu_1, bleu_2, bleu_3, bleu_4 = calculate_bleu_scores(
+        decoded_sentences, all_ground_truths_captions)
 
     return bleu_1, bleu_2, bleu_3, bleu_4
+
+
+def calculate_bleu_scores(candidate_corpus, reference_corpus, max_n=4):
+    weights = [1]
+    bleu_scores = []
+    for n in range(1, max_n+1):
+        bleu = bleu_score(candidate_corpus,
+                          reference_corpus, max_n=n, weights=weights)
+        bleu_scores.append(bleu)
+        weights.insert(0, 0)
+
+    return bleu_scores
 
 
 def plot_attention(input_sentence, output_words, attentions):
@@ -117,14 +127,14 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
             encoder_optimizer.zero_grad()
             decoder_optimizer.zero_grad()
 
-            encoder_outputs, encoder_hidden = encoder(image_tensor)
+            encoder_outputs = encoder(image_tensor)
 
             if np.random.random_sample() < teacher_forcing_ratio:
                 decoder_outputs, decoder_hidden, _ = decoder(
-                    encoder_outputs, encoder_hidden, tokenized_caption)
+                    encoder_outputs, tokenized_caption)
             else:
                 decoder_outputs, decoder_hidden, _ = decoder(
-                    encoder_outputs, encoder_hidden)
+                    encoder_outputs)
 
             loss = criterion(
                 decoder_outputs.view(-1, decoder_outputs.size(-1)),
@@ -213,12 +223,12 @@ def main():
           f'{dataloader_settings = }\n{encoder_settings = }\n{decoder_settings = }')
 
     train_dataset = ImageCaptioningDataset(
-        **dataset_settings, stage='train', transforms=EfficientNet_V2_S_Weights.DEFAULT.transforms())
+        **dataset_settings, stage='train', transforms=ResNet50_Weights.DEFAULT.transforms())
     train_dataloader = DataLoader(
         train_dataset, **dataloader_settings)
 
     test_dataset = ImageCaptioningDataset(
-        **dataset_settings, stage='test', transforms=EfficientNet_V2_S_Weights.DEFAULT.transforms())
+        **dataset_settings, stage='test', transforms=ResNet50_Weights.DEFAULT.transforms())
     test_dataloader = DataLoader(
         test_dataset, **dataloader_settings)
 
@@ -227,13 +237,13 @@ def main():
     decoder = BahdanauAttnDecoderGRU(**model_settings, **decoder_settings,
                                      output_size=train_dataset.lang.n_words, device=device).to(device)
 
-    # encoder = ImageEncoderVanilla(
+    # encoder = ImageEncoderFC(
     #     **model_settings, **encoder_settings).to(device)
     # decoder = DecoderRNN(**model_settings, **decoder_settings,
     #                      output_size=train_dataset.lang.n_words, device=device).to(device)
 
     logger = Logger(
-        settings, f'ImageCaptioning_{encoder.__class__.__name__}_{decoder.__class__.__name__}', 'INM706_Image_Captioning')
+        settings, f'{encoder.__class__.__name__}_{decoder.__class__.__name__}', 'INM706_Image_Captioning')
     logger.watch(encoder)
     logger.watch(decoder)
 

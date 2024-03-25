@@ -1,5 +1,5 @@
 model:
-  hidden_size: 2048
+  hidden_size: 512
 decoder:
   max_length: 20
   embedding_size: 256
@@ -11,7 +11,7 @@ train:
   print_every: 1
   plot_every: 1
   n_epochs: 100
-  teacher_forcing_ratio: 1.0
+  teacher_forcing_ratio: 0.0
   early_stopping: 10
 dataset:
   root_dir: flickr30k_images

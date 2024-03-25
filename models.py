@@ -5,9 +5,9 @@ from torchvision.models import resnet50, ResNet50_Weights, resnet101, ResNet101_
 from attention_models import BahdanauAttention, AttentionMultiHead
 
 
-class ImageEncoderVanilla(nn.Module):
+class ImageEncoderFC(nn.Module):
     def __init__(self, hidden_size: int, freeze_backbone=False, backbone: str = None):
-        super(ImageEncoderVanilla, self).__init__()
+        super(ImageEncoderFC, self).__init__()
         self.hidden_size = hidden_size
 
         self.cnn = resnet50(weights=ResNet50_Weights.DEFAULT)
@@ -20,12 +20,9 @@ class ImageEncoderVanilla(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.cnn(x)
-
-        x = x.unsqueeze(0)
-
         x = F.dropout(x, 0.2)
 
-        return None, x
+        return x
 
 
 class ImageEncoderAttention(nn.Module):
@@ -50,13 +47,7 @@ class ImageEncoderAttention(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.cnn(x)
 
-        x = x.permute(0, 2, 3, 1)
-
-        x = x.view(x.shape[0], -1, x.shape[-1])
-
-        hidden = torch.mean(x, dim=1).unsqueeze(0)
-
-        return x, hidden
+        return x
 
 
 class DecoderRNN(nn.Module):
@@ -67,15 +58,24 @@ class DecoderRNN(nn.Module):
         super(DecoderRNN, self).__init__()
         self.embedding = nn.Embedding(output_size, embedding_size)
         self.gru = nn.GRU(embedding_size, hidden_size, batch_first=True)
-        self.out = nn.Linear(embedding_size, output_size)
+        self.out = nn.Linear(hidden_size, output_size)
         self.device = device
         self.max_length = max_length
+        self.init_hidden = nn.Conv2d(2048, hidden_size, 7)
 
-    def forward(self, encoder_output, encoder_hidden, target_tensor=None):
-        batch_size = encoder_hidden.size(1)
+    def initiate_hidden(self, encoder_output):
+        if encoder_output.ndim == 2:
+            return encoder_output.unsqueeze(0)
+        x = self.init_hidden(encoder_output)
+        x = x.squeeze().unsqueeze(0)
+
+        return x
+
+    def forward(self, encoder_outputs, target_tensor=None):
+        batch_size = encoder_outputs.size(0)
         decoder_input = torch.full(
             (batch_size, 1), self.SOS_token, dtype=torch.long, device=self.device)
-        decoder_hidden = encoder_hidden
+        decoder_hidden = self.initiate_hidden(encoder_outputs)
         decoder_outputs = []
         beams = [(decoder_input, decoder_hidden, [], 1.0)] * \
             batch_size  # Initialize the beams
@@ -128,12 +128,17 @@ class BahdanauAttnDecoderGRU(nn.Module):
 
         self.out = nn.Linear(hidden_size, output_size)
         self.dropout = nn.Dropout(dropout_p)
+        self.init_hidden = nn.Conv2d(2048, hidden_size, 7)
 
-    def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
+    def initiate_hidden(self, encoder_output):
+        x = self.init_hidden(encoder_output)
+        x = x.squeeze().unsqueeze(0)
+
+    def forward(self, encoder_outputs, target_tensor=None):
         batch_size = encoder_outputs.size(0)
         decoder_input = torch.empty(
             batch_size, 1, dtype=torch.long, device=self.device).fill_(self.SOS_token)
-        decoder_hidden = encoder_hidden
+        decoder_hidden = self.initiate_hidden(encoder_outputs)
         decoder_outputs = []
         attentions = []
 
