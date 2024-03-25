@@ -11,10 +11,7 @@ class Logger:
         self.logger = logger
 
     def log(self, data):
-        self.logger.log(data, step=self.step)
+        self.logger.log(data)
 
     def watch(self, model):
         self.logger.watch(model, log='all')
-
-    def inc_step(self):
-        self.step += 1

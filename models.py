@@ -2,8 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models import resnet50, ResNet50_Weights, resnet101, ResNet101_Weights
-import math
-from attention_models import BahdanauAttention, SelfAttention, AttentionMultiHead
+from attention_models import BahdanauAttention, AttentionMultiHead
 
 
 class ImageEncoderVanilla(nn.Module):
@@ -29,17 +28,17 @@ class ImageEncoderVanilla(nn.Module):
         return None, x
 
 
-class ImageEncoderSelfAttentionRNN(nn.Module):
+class ImageEncoderAttention(nn.Module):
     def __init__(self, hidden_size: int, freeze_backbone=False, nr_heads=1, backbone_name: str = None):
-        super(ImageEncoderSelfAttentionRNN, self).__init__()
+        super(ImageEncoderAttention, self).__init__()
         self.hidden_size = hidden_size
 
-        backbone = resnet101(weights=ResNet101_Weights.DEFAULT)
+        backbone = resnet50(weights=ResNet50_Weights.DEFAULT)
 
         self.cnn = nn.Sequential(*list(backbone.children())[:-2])
 
-        self.attention = AttentionMultiHead(
-            input_size=2048, out_size=hidden_size, nr_heads=nr_heads)
+        # self.attention = AttentionMultiHead(
+        #     input_size=2048, out_size=hidden_size, nr_heads=nr_heads)
 
         if freeze_backbone:
             for param in self.cnn.parameters():
@@ -54,16 +53,17 @@ class ImageEncoderSelfAttentionRNN(nn.Module):
         x = x.permute(0, 2, 3, 1)
 
         x = x.view(x.shape[0], -1, x.shape[-1])
-        out, att = self.attention(x)
 
-        return out, x
+        hidden = torch.mean(x, dim=1).unsqueeze(0)
+
+        return x, hidden
 
 
 class DecoderRNN(nn.Module):
     SOS_token = 0
     EOS_token = 1
 
-    def __init__(self, embedding_size, hidden_size, output_size, max_length=10, device=torch.device('cpu')):
+    def __init__(self, embedding_size, hidden_size, output_size, max_length=10, beam_size=1, device=torch.device('cpu')):
         super(DecoderRNN, self).__init__()
         self.embedding = nn.Embedding(output_size, embedding_size)
         self.gru = nn.GRU(embedding_size, hidden_size, batch_first=True)
@@ -73,10 +73,12 @@ class DecoderRNN(nn.Module):
 
     def forward(self, encoder_output, encoder_hidden, target_tensor=None):
         batch_size = encoder_hidden.size(1)
-        decoder_input = torch.empty(
-            batch_size, 1, dtype=torch.long, device=self.device).fill_(self.SOS_token)
-        decoder_hidden = encoder_hidden.clone()
+        decoder_input = torch.full(
+            (batch_size, 1), self.SOS_token, dtype=torch.long, device=self.device)
+        decoder_hidden = encoder_hidden
         decoder_outputs = []
+        beams = [(decoder_input, decoder_hidden, [], 1.0)] * \
+            batch_size  # Initialize the beams
 
         for i in range(self.max_length):
             decoder_output, decoder_hidden = self.forward_step(

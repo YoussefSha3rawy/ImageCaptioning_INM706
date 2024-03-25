@@ -91,7 +91,7 @@ class SelfAttention(nn.Module):
             in_features=input_size, out_features=out_size)
         self.value_linear = nn.Linear(
             in_features=input_size, out_features=out_size)
-        self.softmax = nn.Softmax(dim=-1)
+        self.softmax = nn.Softmax(dim=1)
         return
 
     def forward(self, input_vector):

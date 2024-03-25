@@ -7,10 +7,10 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from dataset import ImageCaptioningDataset
 from logger import Logger
-from models import SelfAttnDecoderRNN, ImageEncoderVanilla, ImageEncoderSelfAttentionRNN, BahdanauAttnDecoderGRU,  DecoderRNN
+from models import SelfAttnDecoderRNN, ImageEncoderVanilla, ImageEncoderAttention, BahdanauAttnDecoderGRU,  DecoderRNN
 from utils import parse_arguments, read_settings, save_checkpoint
 from torch.utils.data import DataLoader
-from torchvision.models import ResNet50_Weights
+from torchvision.models import ResNet50_Weights, EfficientNet_V2_S_Weights
 from torchtext.data.metrics import bleu_score
 import numpy as np
 
@@ -34,12 +34,13 @@ def evaluate(encoder, decoder, dataloader):
 
             _, topi = decoder_outputs.topk(1)
             decoded_ids = topi.squeeze()
-            for decoded_sentence, caption_text in zip(decoded_ids, caption_texts):
+            for index, decoded_sentence in enumerate(decoded_ids):
                 sentence = dataloader.dataset.tokens_to_sentence(
                     decoded_sentence)
                 decoded_sentences.append(sentence)
+                ground_truths = np.array(caption_texts)[:, index]
                 all_ground_truths_captions.append(
-                    [caption.split(' ') for caption in caption_text])
+                    [caption.split(' ') for caption in ground_truths])
 
             print(f'Step {i}/{len(dataloader)}', end='\r')
 
@@ -132,14 +133,14 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
             loss.backward()
 
             total_loss += loss.item()
-            decoder_optimizer.step()
-            encoder_optimizer.step()
+        decoder_optimizer.step()
+        encoder_optimizer.step()
         print(f'Step {i}/{len(dataloader)}', end='\r')
     return total_loss / len(dataloader)
 
 
 def train(
-        train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs, teacher_forcing_ratio=1.0, learning_rate=0.001,
+        train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs, teacher_forcing_ratio=1.0, learning_rate=0.001, early_stopping=np.inf,
         print_every=100, plot_every=100):
     plot_losses = []
     print_loss_total = 0  # Reset every print_every
@@ -150,9 +151,8 @@ def train(
     criterion = nn.NLLLoss()
 
     max_bleu = 0
+    epochs_since_improvement = 0
     for epoch in range(1, n_epochs + 1):
-        logger.inc_step()
-
         epoch_start = time.perf_counter()
         loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer,
                            decoder_optimizer, criterion, teacher_forcing_ratio)
@@ -179,12 +179,20 @@ def train(
             plot_loss_total = 0
 
         if avg_bleu := np.mean([bleu_1, bleu_2, bleu_3, bleu_4]) > max_bleu:
+            epochs_since_improvement = 0
             print(f'New best bleu score: {avg_bleu}')
             max_bleu = avg_bleu
             save_checkpoint(
                 epoch, encoder, f'encoder_{encoder.__class__.__name__}', encoder_optimizer)
             save_checkpoint(
                 epoch, decoder, f'decoder_{decoder.__class__.__name__}', decoder_optimizer)
+        else:
+            epochs_since_improvement += 1
+
+        if epochs_since_improvement >= early_stopping:
+            print(
+                f'No improvement in {early_stopping} epochs. Stopping training.')
+            break
 
 
 def main():
@@ -205,25 +213,24 @@ def main():
           f'{dataloader_settings = }\n{encoder_settings = }\n{decoder_settings = }')
 
     train_dataset = ImageCaptioningDataset(
-        **dataset_settings, stage='train', transforms=ResNet50_Weights.DEFAULT.transforms())
+        **dataset_settings, stage='train', transforms=EfficientNet_V2_S_Weights.DEFAULT.transforms())
     train_dataloader = DataLoader(
         train_dataset, **dataloader_settings)
 
     test_dataset = ImageCaptioningDataset(
-        **dataset_settings, stage='test', transforms=ResNet50_Weights.DEFAULT.transforms())
+        **dataset_settings, stage='test', transforms=EfficientNet_V2_S_Weights.DEFAULT.transforms())
     test_dataloader = DataLoader(
         test_dataset, **dataloader_settings)
 
-    encoder = ImageEncoderVanilla(
+    encoder = ImageEncoderAttention(
         **model_settings, **encoder_settings).to(device)
-    decoder = DecoderRNN(**model_settings, **decoder_settings,
-                         output_size=train_dataset.lang.n_words, device=device).to(device)
-    # encoder = ImageEncoderSelfAttentionRNN(
+    decoder = BahdanauAttnDecoderGRU(**model_settings, **decoder_settings,
+                                     output_size=train_dataset.lang.n_words, device=device).to(device)
+
+    # encoder = ImageEncoderVanilla(
     #     **model_settings, **encoder_settings).to(device)
-    # decoder = SelfAttnDecoderRNN(**model_settings, **decoder_settings,
-    #                              output_size=train_dataset.lang.n_words, device=device).to(device)
-    # decoder = AttnDecoderGRU(**model_settings, **decoder_settings,
-    #                          output_size=train_dataset.lang.n_words, device=device).to(device)
+    # decoder = DecoderRNN(**model_settings, **decoder_settings,
+    #                      output_size=train_dataset.lang.n_words, device=device).to(device)
 
     logger = Logger(
         settings, f'ImageCaptioning_{encoder.__class__.__name__}_{decoder.__class__.__name__}', 'INM706_Image_Captioning')
