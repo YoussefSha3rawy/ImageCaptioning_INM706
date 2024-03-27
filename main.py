@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from dataset import ImageCaptioningDataset
 from logger import Logger
-from models import SelfAttnDecoderRNN, ImageEncoderFC, ImageEncoderAttention, BahdanauAttnDecoderGRU,  DecoderRNN
+from models import SelfAttnDecoderRNN, ImageEncoderFC, ImageEncoderAttention, DecoderWithAttention
 from utils import parse_arguments, read_settings, save_checkpoint
 from torch.utils.data import DataLoader
 from torchvision.models import ResNet50_Weights, EfficientNet_V2_S_Weights
@@ -188,10 +188,10 @@ def train(
             plot_losses.append(plot_loss_avg)
             plot_loss_total = 0
 
-        if avg_bleu := np.mean([bleu_1, bleu_2, bleu_3, bleu_4]) > max_bleu:
+        if bleu_4 > max_bleu:
             epochs_since_improvement = 0
-            print(f'New best bleu score: {avg_bleu}')
-            max_bleu = avg_bleu
+            print(f'New best bleu_4 score: {bleu_4}')
+            max_bleu = bleu_4
             save_checkpoint(
                 epoch, encoder, f'encoder_{encoder.__class__.__name__}', encoder_optimizer)
             save_checkpoint(
@@ -234,13 +234,11 @@ def main():
 
     encoder = ImageEncoderAttention(
         **model_settings, **encoder_settings).to(device)
-    decoder = BahdanauAttnDecoderGRU(**model_settings, **decoder_settings,
-                                     output_size=train_dataset.lang.n_words, device=device).to(device)
 
     # encoder = ImageEncoderFC(
     #     **model_settings, **encoder_settings).to(device)
-    # decoder = DecoderRNN(**model_settings, **decoder_settings,
-    #                      output_size=train_dataset.lang.n_words, device=device).to(device)
+    decoder = DecoderWithAttention(**model_settings, **decoder_settings,
+                                   output_size=train_dataset.lang.n_words, device=device, encoder_dim=encoder.out_features).to(device)
 
     logger = Logger(
         settings, f'{encoder.__class__.__name__}_{decoder.__class__.__name__}', 'INM706_Image_Captioning')

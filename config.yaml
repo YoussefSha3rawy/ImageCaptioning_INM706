@@ -3,6 +3,7 @@ model:
 decoder:
   max_length: 20
   embedding_size: 256
+  attention_type: Bahdanau
 encoder:
   freeze_backbone: True
   # nr_heads: 6
@@ -11,12 +12,12 @@ train:
   print_every: 1
   plot_every: 1
   n_epochs: 100
-  teacher_forcing_ratio: 0.0
-  early_stopping: 10
+  teacher_forcing_ratio: 1.0
+  early_stopping: 20
 dataset:
   root_dir: flickr30k_images
   caption_file: results.csv
-  image_folder: 'flickr30k_images'
+  image_folder: flickr30k_images
   max_length: 20
 dataloader:
   batch_size: 128

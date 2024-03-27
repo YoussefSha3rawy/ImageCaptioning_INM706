@@ -8,11 +8,11 @@ import wandb
 
 
 class BahdanauAttention(nn.Module):
-    def __init__(self, hidden_size):
+    def __init__(self, decoder_dim, encoder_dim):
         super(BahdanauAttention, self).__init__()
-        self.W1 = nn.Linear(hidden_size, hidden_size)
-        self.W2 = nn.Linear(hidden_size, hidden_size)
-        self.Va = nn.Linear(hidden_size, 1)
+        self.W1 = nn.Linear(decoder_dim, decoder_dim)
+        self.W2 = nn.Linear(encoder_dim, decoder_dim)
+        self.Va = nn.Linear(decoder_dim, 1)
 
     def forward(self, query, keys):
         scores = self.Va(torch.tanh(self.W1(query) + self.W2(keys)))
