@@ -28,16 +28,16 @@ class ImageEncoderFC(nn.Module):
 
 
 class ImageEncoderAttention(nn.Module):
-    def __init__(self, hidden_size: int, freeze_backbone=False, nr_heads=1, backbone_name: str = None):
+    def __init__(self, hidden_size: int, freeze_backbone=False, backbone_name: str = None, dropout_p=0.2, nr_heads=0):
         super(ImageEncoderAttention, self).__init__()
         self.hidden_size = hidden_size
+        self.nr_heads = nr_heads
 
-        backbone = resnet50(weights=ResNet50_Weights.DEFAULT)
+        backbone = resnet101(weights=ResNet101_Weights.DEFAULT)
 
         self.cnn = nn.Sequential(*list(backbone.children())[:-2])
 
-        # self.attention = AttentionMultiHead(
-        #     input_size=2048, out_size=hidden_size, nr_heads=nr_heads)
+        self.dropout = nn.Dropout(dropout_p)
 
         if hasattr(backbone, 'fc'):
             self.out_features = backbone.fc.in_features
@@ -48,27 +48,33 @@ class ImageEncoderAttention(nn.Module):
             for param in self.cnn.parameters():
                 param.requires_grad = False
 
-        # self.cnn.fc = nn.Linear(self.cnn.fc.in_features, hidden_size)
-        # self.conv = nn.Conv2d(2048, 20, kernel_size=1)
+        if nr_heads > 0:
+            self.self_attention = AttentionMultiHead(
+                input_size=self.out_features, out_size=self.out_features, nr_heads=nr_heads)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.cnn(x)
-
+        if self.nr_heads > 0:
+            x = x.permute(0, 2, 3, 1)
+            batch, i, j, features = x.size()
+            x = x.view(batch, -1, features)
+            x, _ = self.self_attention(x)
+            x = x.view(batch, i, j, features)
+            x = x.permute(0, 3, 1, 2)
+        x = self.dropout(x)
         return x
 
 
 class AttentionTypes(Enum):
     NONE = 'None'
     BAHDANAU = 'Bahdanau'
-    LUONG = 'Luong'
 
 
 class DecoderWithAttention(nn.Module):
-    PAD_token = 0
-    SOS_token = 1
-    EOS_token = 2
+    SOS_token = 0
+    EOS_token = 1
 
-    def __init__(self, embedding_size, hidden_size, encoder_dim, output_size, max_length=10, beam_size=1, attention_type=AttentionTypes.NONE, dropout_p=0.1, device=torch.device('cpu')):
+    def __init__(self, embedding_size, hidden_size, encoder_dim, output_size, max_length=10, attention_type=AttentionTypes.NONE, dropout_p=0.1, device=torch.device('cpu')):
         super(DecoderWithAttention, self).__init__()
         self.embedding = nn.Embedding(output_size, embedding_size)
         self.hidden_size = hidden_size
@@ -78,17 +84,14 @@ class DecoderWithAttention(nn.Module):
         self.attention_type = attention_type
         self.encoder_dim = encoder_dim
 
-        print(attention_type)
+        assert attention_type in [
+            member.value for member in AttentionTypes], 'Attention type not supported'
+
         if attention_type == AttentionTypes.BAHDANAU.value:
             self.attention_module = BahdanauAttention(
                 hidden_size, self.encoder_dim)
             self.attention_function = self.forward_step_bahdanau
             self.gru_input_size = embedding_size + self.encoder_dim
-        elif attention_type == AttentionTypes.LUONG.value:
-            self.attention = LuongAttn('general', hidden_size)
-            self.attention_function = self.forward_step_luong
-            self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
-            self.concat = nn.Linear(hidden_size * 2, hidden_size)
         else:
             self.gru_input_size = embedding_size
         self.gru = nn.GRU(self.gru_input_size, hidden_size, batch_first=True)
@@ -113,7 +116,7 @@ class DecoderWithAttention(nn.Module):
         attentions = []
 
         for i in range(self.max_length):
-            if self.attention_type == AttentionTypes.NONE:
+            if self.attention_type == AttentionTypes.NONE.value:
                 decoder_output, decoder_hidden = self.forward_step_no_attention(
                     decoder_input, decoder_hidden
                 )
@@ -143,7 +146,7 @@ class DecoderWithAttention(nn.Module):
         output = self.embedding(input)
         output = self.dropout(output)
         output, hidden = self.gru(output, hidden)
-        output = self.out(output)
+        output = self.out(self.dropout(output))
         return output, hidden
 
     def forward_step_bahdanau(self, input, hidden, encoder_outputs):
@@ -152,29 +155,13 @@ class DecoderWithAttention(nn.Module):
         context, attn_weights = self.attention_module(query, encoder_outputs)
         input_gru = torch.cat((embedded, context), dim=2)
         output, hidden = self.gru(input_gru, hidden)
-        output = self.out(output)
+        output = self.out(self.dropout(output))
         return output, hidden, attn_weights
-
-    def forward_step_luong(self, input, hidden, encoder_outputs):
-        embedded = self.dropout(self.embedding(input))
-        output, hidden = self.gru(embedded, hidden)
-        attn_weights, _ = self.attention(output, encoder_outputs)
-        context = attn_weights.bmm(encoder_outputs)
-
-        rnn_output = output.squeeze(1)
-        context = context.squeeze(1)
-        concat_input = torch.cat((rnn_output, context), 1)
-        concat_output = torch.tanh(self.concat(concat_input))
-        output = self.out(concat_output)
-        output = F.softmax(output, dim=1)
-        # Return output and final hidden state
-        return output.unsqueeze(1), hidden, None
 
 
 class SelfAttnDecoderRNN(nn.Module):
-    PAD_token = 0
-    SOS_token = 1
-    EOS_token = 2
+    SOS_token = 0
+    EOS_token = 1
 
     def __init__(self, embedding_size, hidden_size, output_size, max_length=10, device=torch.device('cpu')):
         super(SelfAttnDecoderRNN, self).__init__()

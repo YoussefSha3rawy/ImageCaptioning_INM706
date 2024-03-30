@@ -20,15 +20,13 @@ if torch.backends.mps.is_available():
 
 
 class Lang:
-    PAD_TOKEN = 0
-    SOS_TOKEN = 1
-    EOS_TOKEN = 2
+    EOS_TOKEN = 1
 
     def __init__(self, name):
         self.name = name
         self.word2index = {}
         self.word2count = {}
-        self.index2word = {0: "PAD", 1: "SOS", 2: "EOS"}
+        self.index2word = {0: "SOS", 1: "EOS"}
         self.n_words = 2  # Count SOS and EOS
 
     def addSentence(self, sentence):
@@ -125,8 +123,7 @@ class ImageCaptioningDataset(Dataset):
         tokenized_sentence = [self.lang.word2index[word]
                               for word in sentence.split(' ')][:self.max_length - 1]
         tokenized_sentence.append(self.lang.EOS_TOKEN)
-        input_ids = torch.full(
-            (self.max_length,), self.lang.PAD_TOKEN, dtype=torch.long)
+        input_ids = torch.zeros(self.max_length, dtype=torch.long)
         input_ids[:len(tokenized_sentence)] = torch.tensor(tokenized_sentence)
         return input_ids, len(tokenized_sentence)
 

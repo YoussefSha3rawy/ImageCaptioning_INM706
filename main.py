@@ -24,6 +24,8 @@ print(f'{device = }')
 
 
 def evaluate(encoder, decoder, dataloader):
+    encoder.eval()
+    decoder.eval()
     all_ground_truths_captions = []
     decoded_sentences = []
     with torch.no_grad():
@@ -63,13 +65,12 @@ def evaluate(encoder, decoder, dataloader):
 
 
 def calculate_bleu_scores(candidate_corpus, reference_corpus, max_n=4):
-    weights = [1]
     bleu_scores = []
     for n in range(1, max_n+1):
+        weights = [1/n] * n
         bleu = bleu_score(candidate_corpus,
                           reference_corpus, max_n=n, weights=weights)
         bleu_scores.append(bleu)
-        weights.insert(0, 0)
 
     return bleu_scores
 
@@ -118,6 +119,8 @@ def plot_and_show_attention(encoder, decoder, input_sentence, input_tensor, outp
 
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
                 decoder_optimizer, criterion, teacher_forcing_ratio):
+    encoder.train()
+    decoder.train()
 
     total_loss = 0
     for i, (image_name, image_tensor, tokenized_captions, caption_texts) in enumerate(dataloader):
@@ -143,21 +146,22 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
             loss.backward()
 
             total_loss += loss.item()
-        decoder_optimizer.step()
-        encoder_optimizer.step()
+            decoder_optimizer.step()
+            encoder_optimizer.step()
         print(f'Step {i}/{len(dataloader)}', end='\r')
     return total_loss / len(dataloader)
 
 
-def train(
-        train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs, teacher_forcing_ratio=1.0, learning_rate=0.001, early_stopping=np.inf,
-        print_every=100, plot_every=100):
+def train(train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs, teacher_forcing_ratio=1.0,
+          encoder_learning_rate=0.001, decoder_learning_rate=0.001, early_stopping=np.inf, print_every=100, plot_every=100):
     plot_losses = []
     print_loss_total = 0  # Reset every print_every
     plot_loss_total = 0  # Reset every plot_every
 
-    encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate)
-    decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate)
+    encoder_optimizer = optim.Adam(
+        encoder.parameters(), lr=encoder_learning_rate)
+    decoder_optimizer = optim.Adam(
+        decoder.parameters(), lr=decoder_learning_rate)
     criterion = nn.NLLLoss()
 
     max_bleu = 0
