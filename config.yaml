@@ -16,6 +16,7 @@ train:
   teacher_forcing_ratio: 1.0
   early_stopping: 20
 dataset:
+  root_dir_local: /Users/youssefshaarawy/Documents/Datasets/INM706/flickr30k_images
   root_dir: flickr30k_images
   caption_file: results.csv
   image_folder: flickr30k_images
@@ -23,3 +24,4 @@ dataset:
 dataloader:
   batch_size: 32
   shuffle: True
+  pin_memory: True

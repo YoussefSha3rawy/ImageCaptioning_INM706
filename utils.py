@@ -3,6 +3,7 @@ import yaml
 import os
 import pandas as pd
 import argparse
+import socket
 
 
 def save_checkpoint(epoch, model, model_name, optimizer):
@@ -33,4 +34,11 @@ def parse_arguments():
 def read_settings(config_path):
     with open(config_path, 'r') as file:
         settings = yaml.safe_load(file)
+    hostname = socket.gethostname()
+
+    if hostname.endswith('local'):  # Example check for local machine names
+        print("Running on Macbook locally")
+        settings['dataset']['root_dir'] = settings['dataset']['root_dir_local']
+
+    del settings['dataset']['root_dir_local']
     return settings

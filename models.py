@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models import resnet50, ResNet50_Weights, resnet101, ResNet101_Weights
-from attention_models import BahdanauAttention, AttentionMultiHead, LuongAttn
+from attention_models import BahdanauAttention, AttentionMultiHead
 from enum import Enum
 
 
@@ -11,7 +11,7 @@ class ImageEncoderFC(nn.Module):
         super(ImageEncoderFC, self).__init__()
         self.hidden_size = hidden_size
 
-        self.cnn = resnet50(weights=ResNet50_Weights.DEFAULT)
+        self.cnn = resnet101(weights=ResNet101_Weights.DEFAULT)
 
         if freeze_backbone:
             for param in self.cnn.parameters():
