@@ -15,3 +15,6 @@ class Logger:
 
     def watch(self, model):
         self.logger.watch(model, log='all')
+
+    def log_artifact(self, artifact):
+        self.logger.log_artifact(artifact)

@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name inm706_project                      # Job name
-#SBATCH --partition=prigpu                        # Select the correct partition.
+#SBATCH --job-name inm706_IC                      # Job name
+#SBATCH --partition=preemptgpu                        # Select the correct partition.
 #SBATCH --nodes=1                                # Run on 1 nodes (each node has 48 cores)
 #SBATCH --ntasks-per-node=1                        # Run one task
 #SBATCH --cpus-per-task=4                          # Use 4 cores, most of the procesing happens on the GPU
@@ -18,7 +18,6 @@ source /opt/flight/etc/setup.sh
 flight env activate gridware
 module load libs/nvidia-cuda/11.2.0/bin
 module load gnu
-export WANDB_API_KEY=37d31add06ffd6210d871e1462ad8777b14e5999
 
 echo $WANDB_API_KEY
 
@@ -31,4 +30,4 @@ wandb login $WANDB_API_KEY --relogin
 #pip freeze
 #Run your script.
 export https_proxy=http://hpc-proxy00.city.ac.uk:3128
-python3 main.py
+python3 train.py --config configs/configAttn.yaml

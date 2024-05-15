@@ -7,12 +7,14 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from dataset import ImageCaptioningDataset
 from logger import Logger
-from models import SelfAttnDecoderRNN, ImageEncoderFC, ImageEncoderAttention, DecoderWithAttention
-from utils import parse_arguments, read_settings, save_checkpoint
+from models import VanillaDecoderRNN, ImageEncoderFC, ImageEncoderAttention, DecoderWithAttention
+from utils import parse_arguments, read_settings, save_checkpoint, calculate_bleu_scores
 from torch.utils.data import DataLoader
-from torchvision.models import ResNet50_Weights, EfficientNet_V2_S_Weights
+from torchvision.models import ResNet101_Weights
 from torchtext.data.metrics import bleu_score
 import numpy as np
+from tqdm import tqdm
+
 
 device = torch.device('cpu')
 if torch.cuda.is_available():
@@ -22,6 +24,8 @@ if torch.backends.mps.is_available():
 
 print(f'{device = }')
 
+torch.backends.cudnn.benchmark = True
+
 
 def evaluate(encoder, decoder, dataloader):
     encoder.eval()
@@ -29,7 +33,7 @@ def evaluate(encoder, decoder, dataloader):
     all_ground_truths_captions = []
     decoded_sentences = []
     with torch.no_grad():
-        for i, (image_name, image_tensor, tokenized_caption, caption_texts) in enumerate(dataloader):
+        for image_tensor, tokenized_caption, caption_texts in tqdm(dataloader):
             encoder_outputs = encoder(image_tensor.to(device))
             decoder_outputs, decoder_hidden, _ = decoder(
                 encoder_outputs)
@@ -44,8 +48,7 @@ def evaluate(encoder, decoder, dataloader):
                 all_ground_truths_captions.append(
                     [caption.split(' ') for caption in ground_truths])
 
-            print(f'Step {i}/{len(dataloader)}', end='\r')
-
+    images = {}
     for i in range(1, 4):
         plot_image = image_tensor[-i].permute(1, 2, 0).numpy()
         image_captions = [' '.join(cap)
@@ -53,26 +56,14 @@ def evaluate(encoder, decoder, dataloader):
         image_predicted_captions = ' '.join(decoded_sentences[-i])
         bleu_scores = calculate_bleu_scores(decoded_sentences[-i:][:1],
                                             all_ground_truths_captions[-i:][:1])
-        wandb.log({f'test_image_{i}': wandb.Image(
-            plot_image, caption=f'prediction: {image_predicted_captions}\n'
-                                f'ground truth: {image_captions}\n'
-                                f'bleu scores: {bleu_scores}')})
+        images[f'test_image_{i}'] = wandb.Image(plot_image, caption=f'prediction: {image_predicted_captions}\n'
+                                                f'ground truth: {image_captions}\n'
+                                                f'bleu scores: {bleu_scores}')
 
     bleu_1, bleu_2, bleu_3, bleu_4 = calculate_bleu_scores(
         decoded_sentences, all_ground_truths_captions)
 
-    return bleu_1, bleu_2, bleu_3, bleu_4
-
-
-def calculate_bleu_scores(candidate_corpus, reference_corpus, max_n=4):
-    bleu_scores = []
-    for n in range(1, max_n+1):
-        weights = [1/n] * n
-        bleu = bleu_score(candidate_corpus,
-                          reference_corpus, max_n=n, weights=weights)
-        bleu_scores.append(bleu)
-
-    return bleu_scores
+    return bleu_1, bleu_2, bleu_3, bleu_4, images
 
 
 def plot_attention(input_sentence, output_words, attentions):
@@ -123,21 +114,21 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
     decoder.train()
 
     total_loss = 0
-    for i, (image_name, image_tensor, tokenized_captions, caption_texts) in enumerate(dataloader):
+    for image_tensor, tokenized_captions, caption_texts in tqdm(dataloader):
         for tokenized_caption in tokenized_captions:
             image_tensor = image_tensor.to(device)
             tokenized_caption = tokenized_caption.to(device)
             encoder_optimizer.zero_grad()
             decoder_optimizer.zero_grad()
 
-            encoder_outputs = encoder(image_tensor)
+            encoded_images = encoder(image_tensor)
 
             if np.random.random_sample() < teacher_forcing_ratio:
                 decoder_outputs, decoder_hidden, _ = decoder(
-                    encoder_outputs, tokenized_caption)
+                    encoded_images, tokenized_caption)
             else:
                 decoder_outputs, decoder_hidden, _ = decoder(
-                    encoder_outputs)
+                    encoded_images)
 
             loss = criterion(
                 decoder_outputs.view(-1, decoder_outputs.size(-1)),
@@ -148,7 +139,6 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
             total_loss += loss.item()
             decoder_optimizer.step()
             encoder_optimizer.step()
-        print(f'Step {i}/{len(dataloader)}', end='\r')
     return total_loss / len(dataloader)
 
 
@@ -159,23 +149,21 @@ def train(train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs,
     plot_loss_total = 0  # Reset every plot_every
 
     encoder_optimizer = optim.Adam(
-        encoder.parameters(), lr=encoder_learning_rate)
+        filter(lambda p: p.requires_grad, encoder.parameters()), lr=encoder_learning_rate)
     decoder_optimizer = optim.Adam(
-        decoder.parameters(), lr=decoder_learning_rate)
+        filter(lambda p: p.requires_grad, decoder.parameters()), lr=decoder_learning_rate)
     criterion = nn.NLLLoss()
 
-    max_bleu = 0
+    max_bleu_4 = 0
     epochs_since_improvement = 0
     for epoch in range(1, n_epochs + 1):
         epoch_start = time.perf_counter()
         loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer,
                            decoder_optimizer, criterion, teacher_forcing_ratio)
         epoch_train_end = time.perf_counter()
-        bleu_1, bleu_2, bleu_3, bleu_4 = evaluate(encoder, decoder,
-                                                  test_dataloader)
+        bleu_1, bleu_2, bleu_3, bleu_4, images = evaluate(encoder, decoder,
+                                                          test_dataloader)
         epoch_evaluate_end = time.perf_counter()
-        logger.log({'epoch_train_time': epoch_train_end - epoch_start,
-                   'epoch_evaluate_time': epoch_evaluate_end - epoch_train_end})
         print_loss_total += loss
         plot_loss_total += loss
 
@@ -187,19 +175,23 @@ def train(train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs,
 
         if epoch % plot_every == 0:
             plot_loss_avg = plot_loss_total / plot_every
-            logger.log({'bleu_1_score': bleu_1, 'bleu_2_score': bleu_2,
-                       'bleu_3_score': bleu_3, 'bleu_4_score': bleu_4, 'loss_avg': plot_loss_avg})
+            logger.log({'bleu_1_score': bleu_1,
+                        'bleu_2_score': bleu_2,
+                        'bleu_3_score': bleu_3,
+                        'bleu_4_score': bleu_4,
+                        'loss_avg': plot_loss_avg,
+                        'epoch_train_time': epoch_train_end - epoch_start,
+                        'epoch_evaluate_time': epoch_evaluate_end - epoch_train_end,
+                        **images})
             plot_losses.append(plot_loss_avg)
             plot_loss_total = 0
 
-        if bleu_4 > max_bleu:
+        if bleu_4 > max_bleu_4:
             epochs_since_improvement = 0
             print(f'New best bleu_4 score: {bleu_4}')
-            max_bleu = bleu_4
+            max_bleu_4 = bleu_4
             save_checkpoint(
-                epoch, encoder, f'encoder_{encoder.__class__.__name__}', encoder_optimizer)
-            save_checkpoint(
-                epoch, decoder, f'decoder_{decoder.__class__.__name__}', decoder_optimizer)
+                epoch, encoder, decoder, encoder_optimizer, decoder_optimizer, logger)
         else:
             epochs_since_improvement += 1
 
@@ -227,25 +219,28 @@ def main():
           f'{dataloader_settings = }\n{encoder_settings = }\n{decoder_settings = }')
 
     train_dataset = ImageCaptioningDataset(
-        **dataset_settings, stage='train', transforms=ResNet50_Weights.DEFAULT.transforms())
+        **dataset_settings, stage='train', transforms=ResNet101_Weights.DEFAULT.transforms())
     train_dataloader = DataLoader(
         train_dataset, **dataloader_settings)
 
     test_dataset = ImageCaptioningDataset(
-        **dataset_settings, stage='test', transforms=ResNet50_Weights.DEFAULT.transforms())
+        **dataset_settings, stage='test', transforms=ResNet101_Weights.DEFAULT.transforms())
     test_dataloader = DataLoader(
         test_dataset, **dataloader_settings)
 
-    encoder = ImageEncoderAttention(
-        **model_settings, **encoder_settings).to(device)
-
-    # encoder = ImageEncoderFC(
-    #     **model_settings, **encoder_settings).to(device)
-    decoder = DecoderWithAttention(**model_settings, **decoder_settings,
-                                   output_size=train_dataset.lang.n_words, device=device, encoder_dim=encoder.out_features).to(device)
+    if 'attention_type' in decoder_settings:
+        encoder = ImageEncoderAttention(
+            **model_settings, **encoder_settings).to(device)
+        decoder = DecoderWithAttention(**model_settings, **decoder_settings,
+                                       output_size=train_dataset.lang.n_words, device=device, encoder_dim=encoder.out_features).to(device)
+    else:
+        encoder = ImageEncoderFC(
+            **model_settings, **encoder_settings).to(device)
+        decoder = VanillaDecoderRNN(**model_settings, **decoder_settings,
+                                    output_size=train_dataset.lang.n_words, device=device).to(device)
 
     logger = Logger(
-        settings, f'{encoder.__class__.__name__}_{decoder.__class__.__name__}', 'INM706_Image_Captioning')
+        settings, f'{str(encoder)}_{str(decoder)}', 'INM706_Image_Captioning')
     logger.watch(encoder)
     logger.watch(decoder)
 

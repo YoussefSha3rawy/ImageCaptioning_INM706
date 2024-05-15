@@ -1,0 +1,26 @@
+model:
+  hidden_size: 512
+decoder:
+  max_length: 20
+  embedding_size: 512
+  dropout_p: 0.2
+encoder:
+  freeze_backbone: False
+train:
+  encoder_learning_rate: 0.0001
+  decoder_learning_rate: 0.0001
+  print_every: 1
+  plot_every: 1
+  n_epochs: 100
+  teacher_forcing_ratio: 1.0
+  early_stopping: 20
+dataset:
+  root_dir_local: /Users/youssefshaarawy/Documents/Datasets/INM706/flickr30k_images
+  root_dir: flickr30k_images
+  caption_file: results.csv
+  image_folder: flickr30k_images
+  max_length: 20
+dataloader:
+  batch_size: 32
+  shuffle: True
+  pin_memory: True

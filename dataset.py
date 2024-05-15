@@ -26,7 +26,7 @@ class Lang:
         self.name = name
         self.word2index = {}
         self.word2count = {}
-        self.index2word = {0: "SOS", 1: "EOS"}
+        self.index2word = {0: "PAD", 1: "SOS", 2: "EOS"}
         self.n_words = 2  # Count SOS and EOS
 
     def addSentence(self, sentence):
@@ -72,7 +72,7 @@ class ImageCaptioningDataset(Dataset):
         tokenized_captions = [self.tokenize_caption(
             caption)[0] for caption in captions]
 
-        return image_name, image, tokenized_captions, captions
+        return image, tokenized_captions, captions
 
     def get_image_captions(self, image_name):
         return self.captions[self.captions['image_name'] == image_name]['normalized_comment'].values

@@ -2,10 +2,11 @@ model:
   hidden_size: 512
 decoder:
   max_length: 20
-  embedding_size: 256
+  embedding_size: 512
+  dropout_p: 0.2
   attention_type: Bahdanau
 encoder:
-  freeze_backbone: True
+  freeze_backbone: False
   nr_heads: 8
 train:
   encoder_learning_rate: 0.0001
