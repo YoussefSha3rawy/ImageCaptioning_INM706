@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name inm706_IC                      # Job name
-#SBATCH --partition=preemptgpu                        # Select the correct partition.
+#SBATCH --partition=prigpu                        # Select the correct partition.
 #SBATCH --nodes=1                                # Run on 1 nodes (each node has 48 cores)
 #SBATCH --ntasks-per-node=1                        # Run one task
 #SBATCH --cpus-per-task=4                          # Use 4 cores, most of the procesing happens on the GPU
@@ -30,4 +30,4 @@ wandb login $WANDB_API_KEY --relogin
 #pip freeze
 #Run your script.
 export https_proxy=http://hpc-proxy00.city.ac.uk:3128
-python3 train.py --config configs/configAttn.yaml
+python3 train.py --config configs/configTransformer.yaml

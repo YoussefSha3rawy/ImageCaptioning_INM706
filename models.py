@@ -257,27 +257,31 @@ class ViTImageEncoder(nn.Module):
         super(ViTImageEncoder, self).__init__()
         self.vit = create_model(model_name, pretrained=pretrained)
         self.vit.reset_classifier(0)  # Remove the classification head
+        self.hidden_size = self.vit.embed_dim
 
     def forward(self, x):
         # [batch_size, num_patches, hidden_dim]
         features = self.vit.forward_features(x)
         return features
 
+    def __str__(self) -> str:
+        return self.__class__.__name__
+
 
 class TransformerDecoder(nn.Module):
-    def __init__(self, vocab_size, hidden_size, encoder_dim, num_heads, num_layers, dropout=0.1):
+    def __init__(self, vocab_size, hidden_size, num_heads, num_layers, max_length, dropout_p=0.1):
         super(TransformerDecoder, self).__init__()
         self.embedding = nn.Embedding(vocab_size, hidden_size)
         self.positional_encoding = nn.Parameter(torch.zeros(
-            1, 500, hidden_size))  # Adjust 500 based on max length
+            1, int(max_length), int(hidden_size)))  # Adjust 500 based on max length
 
         decoder_layer = nn.TransformerDecoderLayer(
-            hidden_size, num_heads, hidden_size * 4, dropout)
+            hidden_size, num_heads, hidden_size * 4, dropout_p, batch_first=True)
         self.transformer_decoder = nn.TransformerDecoder(
             decoder_layer, num_layers)
 
         self.fc = nn.Linear(hidden_size, vocab_size)
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, tgt, memory):
         tgt_emb = self.embedding(
@@ -288,29 +292,30 @@ class TransformerDecoder(nn.Module):
         output = self.fc(output)
         return output
 
+    def __str__(self) -> str:
+        return self.__class__.__name__
+
 
 class ImageCaptioningModel(nn.Module):
     SOS_token = 1
     EOS_token = 2
 
-    def __init__(self, vocab_size, hidden_size, encoder_dim, num_heads, num_layers, max_length, dropout=0.1, device=torch.device('cpu'), beam_width=3):
+    def __init__(self, vocab_size, hidden_size, num_heads, num_layers, max_length, dropout_p=0.1, device=torch.device('cpu'), beam_width=3):
         super(ImageCaptioningModel, self).__init__()
-        self.encoder = ViTImageEncoder()
         self.decoder = TransformerDecoder(
-            vocab_size, hidden_size, encoder_dim, num_heads, num_layers, dropout)
+            vocab_size, hidden_size, num_heads, num_layers, max_length, dropout_p)
         self.max_length = max_length
         self.device = device
         self.beam_width = beam_width
 
-    def forward(self, images, target_captions=None):
+    def forward(self, encoder_outputs, target_captions=None):
         # [batch_size, num_patches, hidden_dim]
-        encoder_outputs = self.encoder(images)
         batch_size = encoder_outputs.size(0)
 
         if target_captions is not None:
             target_captions = target_captions.to(self.device)
             outputs = self.decoder(target_captions, encoder_outputs)
-            return outputs
+            return outputs, None, None
         else:
             # Beam search or greedy decoding
             generated_captions = torch.full(
@@ -322,4 +327,7 @@ class ImageCaptioningModel(nn.Module):
                     (generated_captions, next_token), dim=1)
                 if torch.all(next_token == self.EOS_token):
                     break
-            return generated_captions
+            return generated_captions, None, None
+
+    def __str__(self) -> str:
+        return self.__class__.__name__

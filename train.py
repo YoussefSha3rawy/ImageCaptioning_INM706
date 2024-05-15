@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from dataset import ImageCaptioningDataset
 from logger import Logger
-from models import VanillaDecoderRNN, ImageEncoderFC, ImageEncoderAttention, DecoderWithAttention
+from models import VanillaDecoderRNN, ImageEncoderFC, ImageEncoderAttention, DecoderWithAttention, ImageCaptioningModel, TransformerDecoder, ViTImageEncoder
 from utils import parse_arguments, read_settings, save_checkpoint, calculate_bleu_scores
 from torch.utils.data import DataLoader
 from torchvision.models import ResNet101_Weights
@@ -233,6 +233,10 @@ def main():
             **model_settings, **encoder_settings).to(device)
         decoder = DecoderWithAttention(**model_settings, **decoder_settings,
                                        output_size=train_dataset.lang.n_words, device=device, encoder_dim=encoder.out_features).to(device)
+    elif 'num_layers' in decoder_settings:
+        encoder = ViTImageEncoder(**encoder_settings).to(device)
+        decoder = ImageCaptioningModel(vocab_size=train_dataset.lang.n_words,
+                                       max_length=dataset_settings['max_length'], **decoder_settings, hidden_size=encoder.hidden_size, device=device).to(device)
     else:
         encoder = ImageEncoderFC(
             **model_settings, **encoder_settings).to(device)
