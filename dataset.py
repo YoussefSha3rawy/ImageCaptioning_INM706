@@ -20,7 +20,7 @@ if torch.backends.mps.is_available():
 
 
 class Lang:
-    EOS_TOKEN = 1
+    EOS_TOKEN = 2
 
     def __init__(self, name):
         self.name = name

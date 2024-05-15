@@ -273,7 +273,7 @@ class TransformerDecoder(nn.Module):
         super(TransformerDecoder, self).__init__()
         self.embedding = nn.Embedding(vocab_size, hidden_size)
         self.positional_encoding = nn.Parameter(torch.zeros(
-            1, int(max_length), int(hidden_size)))  # Adjust 500 based on max length
+            1, int(max_length), int(hidden_size)))
 
         decoder_layer = nn.TransformerDecoderLayer(
             hidden_size, num_heads, hidden_size * 4, dropout_p, batch_first=True)

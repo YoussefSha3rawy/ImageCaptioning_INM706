@@ -38,8 +38,11 @@ def evaluate(encoder, decoder, dataloader):
             decoder_outputs, decoder_hidden, _ = decoder(
                 encoder_outputs)
 
-            _, topi = decoder_outputs.topk(1)
-            decoded_ids = topi.squeeze()
+            if decoder_outputs.ndim == 3:
+                _, topi = decoder_outputs.topk(1)
+                decoded_ids = topi.squeeze()
+            else:
+                decoded_ids = decoder_outputs
             for index, decoded_sentence in enumerate(decoded_ids):
                 sentence = dataloader.dataset.tokens_to_sentence(
                     decoded_sentence)
