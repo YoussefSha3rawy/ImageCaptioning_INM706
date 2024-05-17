@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1                        # Run one task
 #SBATCH --cpus-per-task=4                          # Use 4 cores, most of the procesing happens on the GPU
 #SBATCH --mem=90GB                                 # Expected ammount CPU RAM needed (Not GPU Memory)
-#SBATCH --time=48:00:00                            # Expected ammount of time to run Time limit hrs:min:sec
+#SBATCH --time=72:00:00                            # Expected ammount of time to run Time limit hrs:min:sec
 #SBATCH --gres=gpu:1                               # Use one gpu.
 #SBATCH -e results/%x_%j.e                         # Standard output and error log [%j is replaced with the jobid]
 #SBATCH -o results/%x_%j.o                         # [%x with the job name], make sure 'results' folder exists.

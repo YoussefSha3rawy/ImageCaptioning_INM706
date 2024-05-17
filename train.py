@@ -7,11 +7,10 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from dataset import ImageCaptioningDataset
 from logger import Logger
-from models import VanillaDecoderRNN, ImageEncoderFC, ImageEncoderAttention, DecoderWithAttention, ImageCaptioningModel, TransformerDecoder, ViTImageEncoder
+from models import VanillaDecoderRNN, ImageEncoderFC, ImageEncoderAttention, DecoderWithAttention, ImageCaptioningModel, ViTImageEncoder
 from utils import parse_arguments, read_settings, save_checkpoint, calculate_bleu_scores
 from torch.utils.data import DataLoader
 from torchvision.models import ResNet101_Weights
-from torchtext.data.metrics import bleu_score
 import numpy as np
 from tqdm import tqdm
 
@@ -155,7 +154,7 @@ def train(train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs,
         filter(lambda p: p.requires_grad, encoder.parameters()), lr=encoder_learning_rate)
     decoder_optimizer = optim.Adam(
         filter(lambda p: p.requires_grad, decoder.parameters()), lr=decoder_learning_rate)
-    criterion = nn.NLLLoss()
+    criterion = nn.NLLLoss(ignore_index=0)
 
     max_bleu_4 = 0
     epochs_since_improvement = 0
@@ -251,9 +250,9 @@ def main():
     logger.watch(encoder)
     logger.watch(decoder)
 
+    # evaluate(encoder, decoder, test_dataloader)
     train(train_dataloader, test_dataloader,
           encoder, decoder, logger, **train_settings)
-    # evaluate(encoder, decoder, test_dataloader)
 
 
 if __name__ == '__main__':

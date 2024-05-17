@@ -3,7 +3,7 @@ model:
 decoder:
   max_length: 20
   embedding_size: 512
-  dropout_p: 0.2
+  dropout_p: 0.3
   attention_type: Bahdanau
 encoder:
   freeze_backbone: False

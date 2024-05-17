@@ -5,6 +5,7 @@ from torchvision.models import resnet50, ResNet50_Weights, resnet101, ResNet101_
 from attention_models import BahdanauAttention, AttentionMultiHead
 from enum import Enum
 from timm import create_model
+import math
 
 
 class ImageEncoderFC(nn.Module):
@@ -26,7 +27,7 @@ class ImageEncoderFC(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.cnn(x)
-        x = F.dropout(x, 0.2)
+        x = F.dropout(x, 0.2, training=self.training)
 
         return x
 
@@ -227,31 +228,6 @@ class VanillaDecoderRNN(nn.Module):
         return self.__class__.__name__
 
 
-class TransformerDecoder(nn.Module):
-    def __init__(self, vocab_size, hidden_size, encoder_dim, num_heads, num_layers, dropout=0.1):
-        super(TransformerDecoder, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, hidden_size)
-        self.positional_encoding = nn.Parameter(torch.zeros(
-            1, 500, hidden_size))  # Adjust 500 based on max length
-
-        decoder_layer = nn.TransformerDecoderLayer(
-            hidden_size, num_heads, hidden_size * 4, dropout)
-        self.transformer_decoder = nn.TransformerDecoder(
-            decoder_layer, num_layers)
-
-        self.fc = nn.Linear(hidden_size, vocab_size)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, tgt, memory):
-        tgt_emb = self.embedding(
-            tgt) + self.positional_encoding[:, :tgt.size(1), :]
-        tgt_emb = self.dropout(tgt_emb)
-
-        output = self.transformer_decoder(tgt_emb, memory)
-        output = self.fc(output)
-        return output
-
-
 class ViTImageEncoder(nn.Module):
     def __init__(self, model_name='vit_base_patch16_224', pretrained=True):
         super(ViTImageEncoder, self).__init__()
@@ -272,8 +248,8 @@ class TransformerDecoder(nn.Module):
     def __init__(self, vocab_size, hidden_size, num_heads, num_layers, max_length, dropout_p=0.1):
         super(TransformerDecoder, self).__init__()
         self.embedding = nn.Embedding(vocab_size, hidden_size)
-        self.positional_encoding = nn.Parameter(torch.zeros(
-            1, int(max_length), int(hidden_size)))
+        self.positional_encoding = self._generate_positional_encoding(
+            max_length, hidden_size)
 
         decoder_layer = nn.TransformerDecoderLayer(
             hidden_size, num_heads, hidden_size * 4, dropout_p, batch_first=True)
@@ -285,12 +261,24 @@ class TransformerDecoder(nn.Module):
 
     def forward(self, tgt, memory):
         tgt_emb = self.embedding(
-            tgt) + self.positional_encoding[:, :tgt.size(1), :]
+            tgt) + self.positional_encoding[:, :tgt.size(1), :].to(tgt.device)
         tgt_emb = self.dropout(tgt_emb)
 
         output = self.transformer_decoder(tgt_emb, memory)
         output = self.fc(output)
+        output = F.log_softmax(output, dim=-1)
+
         return output
+
+    def _generate_positional_encoding(self, max_length, hidden_size):
+        position = torch.arange(0, max_length).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, hidden_size, 2)
+                             * -(math.log(10000.0) / hidden_size))
+        pe = torch.zeros(max_length, hidden_size)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)  # Shape (1, max_length, hidden_size)
+        return pe
 
     def __str__(self) -> str:
         return self.__class__.__name__
@@ -317,17 +305,19 @@ class ImageCaptioningModel(nn.Module):
             outputs = self.decoder(target_captions, encoder_outputs)
             return outputs, None, None
         else:
-            # Beam search or greedy decoding
             generated_captions = torch.full(
                 (batch_size, 1), self.SOS_token, dtype=torch.long, device=self.device)
-            for _ in range(self.max_length):
-                outputs = self.decoder(generated_captions, encoder_outputs)
-                next_token = outputs[:, -1, :].argmax(dim=-1, keepdim=True)
+            outputs = torch.zeros(
+                batch_size, self.max_length, self.decoder.fc.out_features).to(self.device)
+            for t in range(self.max_length):
+                output = self.decoder(generated_captions, encoder_outputs)
+                next_token = output[:, -1, :].argmax(dim=-1, keepdim=True)
+                outputs[:, t, :] = output[:, -1, :]
                 generated_captions = torch.cat(
                     (generated_captions, next_token), dim=1)
                 if torch.all(next_token == self.EOS_token):
                     break
-            return generated_captions, None, None
+            return outputs, None, None
 
     def __str__(self) -> str:
         return self.__class__.__name__
