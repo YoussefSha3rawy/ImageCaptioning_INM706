@@ -14,8 +14,9 @@ train:
   print_every: 1
   plot_every: 1
   n_epochs: 100
-  teacher_forcing_ratio: 0.2
+  teacher_forcing_ratio: 0.8
   early_stopping: 20
+  checkpoint: weights/ViTImageEncoder_ImageCaptioningModel_ckpt.pth
 dataset:
   root_dir_local: /Users/youssefshaarawy/Documents/Datasets/INM706/flickr30k_images
   root_dir: flickr30k_images

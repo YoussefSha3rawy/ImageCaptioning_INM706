@@ -14,10 +14,10 @@ def save_checkpoint(epoch, encoder, decoder, encoder_optimizer, decoder_optimize
         'encoder_weights': encoder.state_dict(),
         'decoder_weights': decoder.state_dict(),
         'encoder_optimizer_state': encoder_optimizer.state_dict(),
-        'decoder_optimizer_state': encoder_optimizer.state_dict()
+        'decoder_optimizer_state': decoder_optimizer.state_dict()
     }
 
-    file_name = f"{str(encoder)}_{str(decoder)}_ckpt_{str(epoch)}.pth"
+    file_name = f"{str(encoder)}_{str(decoder)}_ckpt.pth"
 
     directory_name = 'weights'
     os.makedirs(directory_name, exist_ok=True)
@@ -32,11 +32,23 @@ def save_checkpoint(epoch, encoder, decoder, encoder_optimizer, decoder_optimize
     return save_path
 
 
-def load_checkpoint(model, file_name):
-    ckpt = torch.load(os.path.join('weights', file_name))
-    model_weights = ckpt['model_weights']
-    model.load_state_dict(model_weights)
-    print("Model's pretrained weights loaded!")
+def load_checkpoint(encoder, decoder, encoder_optimizer, decoder_optimizer, checkpoint_path):
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(
+            f"Checkpoint file not found: {checkpoint_path}")
+
+    checkpoint = torch.load(checkpoint_path)
+
+    encoder.load_state_dict(checkpoint['encoder_weights'])
+    decoder.load_state_dict(checkpoint['decoder_weights'])
+    encoder_optimizer.load_state_dict(checkpoint['encoder_optimizer_state'])
+    decoder_optimizer.load_state_dict(checkpoint['decoder_optimizer_state'])
+
+    epoch = checkpoint['epoch']
+
+    print(f'Loaded checkpoint from epoch {epoch}')
+
+    return epoch
 
 
 def parse_arguments():

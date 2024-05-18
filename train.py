@@ -8,7 +8,7 @@ import matplotlib.ticker as ticker
 from dataset import ImageCaptioningDataset
 from logger import Logger
 from models import VanillaDecoderRNN, ImageEncoderFC, ImageEncoderAttention, DecoderWithAttention, ImageCaptioningModel, ViTImageEncoder
-from utils import parse_arguments, read_settings, save_checkpoint, calculate_bleu_scores
+from utils import parse_arguments, read_settings, save_checkpoint, calculate_bleu_scores, load_checkpoint
 from torch.utils.data import DataLoader
 from torchvision.models import ResNet101_Weights
 import numpy as np
@@ -145,7 +145,7 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
 
 
 def train(train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs, teacher_forcing_ratio=1.0,
-          encoder_learning_rate=0.001, decoder_learning_rate=0.001, early_stopping=np.inf, print_every=100, plot_every=100):
+          encoder_learning_rate=0.001, decoder_learning_rate=0.001, early_stopping=np.inf, print_every=100, plot_every=100, checkpoint=None):
     plot_losses = []
     print_loss_total = 0  # Reset every print_every
     plot_loss_total = 0  # Reset every plot_every
@@ -155,6 +155,10 @@ def train(train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs,
     decoder_optimizer = optim.Adam(
         filter(lambda p: p.requires_grad, decoder.parameters()), lr=decoder_learning_rate)
     criterion = nn.NLLLoss(ignore_index=0)
+
+    if checkpoint:
+        load_checkpoint(encoder, decoder, encoder_optimizer,
+                        decoder_optimizer, checkpoint)
 
     max_bleu_4 = 0
     epochs_since_improvement = 0
