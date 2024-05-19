@@ -288,13 +288,12 @@ class ImageCaptioningModel(nn.Module):
     SOS_token = 1
     EOS_token = 2
 
-    def __init__(self, vocab_size, hidden_size, num_heads, num_layers, max_length, dropout_p=0.1, device=torch.device('cpu'), beam_width=3):
+    def __init__(self, vocab_size, hidden_size, num_heads, num_layers, max_length, dropout_p=0.1, device=torch.device('cpu')):
         super(ImageCaptioningModel, self).__init__()
         self.decoder = TransformerDecoder(
             vocab_size, hidden_size, num_heads, num_layers, max_length, dropout_p)
         self.max_length = max_length
         self.device = device
-        self.beam_width = beam_width
 
     def forward(self, encoder_outputs, target_captions=None):
         # [batch_size, num_patches, hidden_dim]

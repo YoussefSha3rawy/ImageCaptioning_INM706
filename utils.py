@@ -37,12 +37,16 @@ def load_checkpoint(encoder, decoder, encoder_optimizer, decoder_optimizer, chec
         raise FileNotFoundError(
             f"Checkpoint file not found: {checkpoint_path}")
 
-    checkpoint = torch.load(checkpoint_path)
+    checkpoint = torch.load(checkpoint_path, map_location='cpu')
 
     encoder.load_state_dict(checkpoint['encoder_weights'])
     decoder.load_state_dict(checkpoint['decoder_weights'])
-    encoder_optimizer.load_state_dict(checkpoint['encoder_optimizer_state'])
-    decoder_optimizer.load_state_dict(checkpoint['decoder_optimizer_state'])
+    if encoder_optimizer:
+        encoder_optimizer.load_state_dict(
+            checkpoint['encoder_optimizer_state'])
+    if decoder_optimizer:
+        decoder_optimizer.load_state_dict(
+            checkpoint['decoder_optimizer_state'])
 
     epoch = checkpoint['epoch']
 

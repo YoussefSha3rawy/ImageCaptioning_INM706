@@ -68,48 +68,6 @@ def evaluate(encoder, decoder, dataloader):
     return bleu_1, bleu_2, bleu_3, bleu_4, images
 
 
-def plot_attention(input_sentence, output_words, attentions):
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    cax = ax.matshow(attentions.cpu().numpy(), cmap='bone')
-    fig.colorbar(cax)
-
-    # Set up axes
-    ax.set_xticklabels([''] + input_sentence.split(' ') +
-                       ['<EOS>'], rotation=90)
-    ax.set_yticklabels([''] + output_words)
-
-    # Show label at every tick
-    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
-
-    # Save the figure to a wandb artifact
-    wandb.log({"attention_matrix": wandb.Image(fig)})
-
-    # Close the figure to prevent it from being displayed in the notebook
-    plt.close(fig)
-
-
-def plot_attention_self(attentions):
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    cax = ax.matshow(attentions.clone().detach().cpu().numpy(), cmap='bone')
-    fig.colorbar(cax)
-
-    # Save the figure to a wandb artifact
-    wandb.log({"attention_matrix": wandb.Image(fig)})
-
-    # Close the figure to prevent it from being displayed in the notebook
-    plt.close(fig)
-
-
-def plot_and_show_attention(encoder, decoder, input_sentence, input_tensor, output_lang_voc):
-    output_words, attentions = evaluate(
-        encoder, decoder, input_tensor, output_lang_voc)
-    plot_attention(input_sentence, output_words,
-                   attentions[0, :len(output_words), :])
-
-
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
                 decoder_optimizer, criterion, teacher_forcing_ratio):
     encoder.train()
@@ -158,7 +116,9 @@ def train(train_dataloader, test_dataloader, encoder, decoder, logger, n_epochs,
 
     if checkpoint:
         load_checkpoint(encoder, decoder, encoder_optimizer,
-                        decoder_optimizer, checkpoint)
+                        decoder_optimizer, checkpoint, device)
+        encoder = encoder.to(device)
+        decoder = decoder.to(device)
 
     max_bleu_4 = 0
     epochs_since_improvement = 0
